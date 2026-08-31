@@ -1,0 +1,94 @@
+# ============================================================
+# 新闻数据源配置
+# kind: rss（标准 RSS/Atom，内置支持）
+# weight: 0-1，越高越优先（去重与 Top-N 排序时使用）
+# enabled: false 的源会被跳过
+# 提示：国外源在国内直连可能超时，可用 http.proxies 或替换为镜像/RSSHub
+# ============================================================
+sources:
+  # ---- 国际科技 ----
+  - id: techcrunch
+    name: TechCrunch
+    kind: rss
+    url: https://techcrunch.com/feed/
+    lang: en
+    category: tech
+    weight: 1.0
+
+  - id: theverge
+    name: The Verge
+    kind: rss
+    url: https://www.theverge.com/rss/index.xml
+    lang: en
+    category: tech
+    weight: 1.0
+
+  # ---- 国际商业/时政 ----
+  - id: bbc-tech
+    name: BBC Technology
+    kind: rss
+    url: https://feeds.bbci.co.uk/news/technology/rss.xml
+    lang: en
+    category: tech
+    weight: 0.9
+    retries: 1             # 国内直连可能超时，单次尝试快速失败；建议配合 http.proxies
+
+  - id: bbc-world
+    name: BBC World
+    kind: rss
+    url: https://feeds.bbci.co.uk/news/world/rss.xml
+    lang: en
+    category: politics
+    weight: 0.8
+    retries: 1
+
+  # Reuters 无公开 RSS，用 Google News 的站内检索 RSS 作为替代
+  - id: reuters-google
+    name: Reuters (via Google News)
+    kind: rss
+    url: "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en"
+    lang: en
+    category: business
+    weight: 0.9
+
+  # 华尔街见闻：JSON 信息流接口（kind=wallstreetcn 内置适配）
+  - id: wallstreetcn
+    name: 华尔街见闻
+    kind: wallstreetcn
+    url: "https://api-one.wallstcn.com/apiv1/content/information-flow?channel=global-channel&accept=article&limit=20"
+    lang: zh
+    category: business
+    weight: 1.0
+
+  # 36氪：官方 /feed 已停止输出 RSS（返回 HTML）。
+  # 备选：自建 RSSHub 路由 https://rsshub.app/36kr/newsflashes（公共实例常限流）
+  - id: kr36
+    name: 36氪
+    kind: rss
+    url: ""
+    lang: zh
+    category: tech
+    weight: 1.0
+    enabled: false
+
+  # ---- X（推特）高影响力账号 ----
+  # X 无免费官方 API。方案：自建/公共 RSSHub，或第三方镜像站。
+  # RSSHub 示例路由：https://rsshub.app/twitter/user/{username}（公共实例时常限流）
+  - id: x-high-impact
+    name: X 高影响力账号
+    kind: rss
+    url: ""              # TODO: 填入你的 RSSHub 地址
+    lang: en
+    category: social
+    weight: 0.7
+    enabled: false
+
+  # ---- 你后续想加更多源，直接复制下面模板 ----
+  # - id: example
+  #   name: 示例媒体
+  #   kind: rss
+  #   url: https://example.com/rss
+  #   lang: zh
+  #   category: tech
+  #   weight: 0.8
+  #   enabled: true

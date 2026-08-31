@@ -1,0 +1,31 @@
+# Render.com Web Service 蓝图（免费额度，15 分钟无访问会休眠）
+# 使用方法：把仓库推到 GitHub → Render 新建 Blueprint，或直接 New Web Service 指向仓库
+# 环境变量（Secrets）请按需添加：LLM_API_KEY / TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID ...
+services:
+  - type: web
+    name: workbench-web
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # 密钥类变量请在 Render 面板手动配置（sync: false 表示不由蓝图生成）
+      - key: LLM_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: WECOM_WEBHOOK
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_TO
+        sync: false

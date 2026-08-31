@@ -1,0 +1,11 @@
+# 个人智能工作台依赖（全部为轻量、免费、开源）
+requests>=2.31        # HTTP 抓取与推送
+feedparser>=6.0.10    # RSS/Atom 解析
+PyYAML>=6.0           # 配置加载
+APScheduler>=3.10,<4  # 可选：内置定时调度（也可只用 cron，此时可不装）
+python-dotenv>=1.0    # 可选：加载 .env 文件
+
+# ---- Web 管理界面（Streamlit）----
+# 仅命令行使用时可将下面两行删除
+streamlit>=1.41       # Web UI 框架
+ruamel.yaml>=0.18     # 配置中心：保注释读写 YAML

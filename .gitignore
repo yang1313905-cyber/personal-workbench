@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# 运行数据（状态库 / 日志 / 简报输出）
+data/
+
+# 密钥
+.env
+.streamlit/secrets.toml
+# 配置文件备份（可能含密钥，如 .env.bak）
+*.bak
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/

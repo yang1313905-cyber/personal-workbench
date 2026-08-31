@@ -1,0 +1,127 @@
+# ============================================================
+# 个人智能工作台 · 主配置
+# 规则：字符串可写 ${ENV_NAME:-} 或 ${ENV_NAME:-默认值}，加载时自动替换
+# ============================================================
+
+app:
+  name: personal-workbench
+  timezone: Asia/Shanghai
+  data_dir: data          # 状态库 / 日志 / 简报输出（相对项目根）
+
+# ---------------- 日志 ----------------
+logging:
+  level: INFO
+  file: data/logs/workbench.log
+  max_bytes: 5242880      # 5MB 滚动
+  backup_count: 3
+
+# ---------------- HTTP（抓取）----------------
+http:
+  timeout: 20
+  retries: 2              # 失败重试次数（共尝试 retries+1 次）
+  headers:
+    User-Agent: "Mozilla/5.0 (compatible; PersonalWorkbench/0.1)"
+  proxies: {}             # 例: {"https": "http://127.0.0.1:7890"}
+
+# ---------------- LLM（OpenAI 兼容接口）----------------
+# 支持：OpenAI / DeepSeek / Moonshot / 硅基流动 / 智谱 GLM / Ollama / vLLM / LM Studio
+# 当前：智谱 GLM-4-Flash（完全免费，open.bigmodel.cn 注册拿 Key）
+llm:
+  base_url: https://open.bigmodel.cn/api/paas/v4
+  model: glm-4-flash
+  api_key: ${LLM_API_KEY:-}   # 无密钥时（如本地 Ollama）可留空
+  temperature: 0.4
+  max_tokens: 2500
+  timeout: 120
+
+# ---------------- 新闻简报模块 ----------------
+news_digest:
+  enabled: true
+  language: zh            # 简报语言
+  word_count: "800-1500"  # 目标字数
+  max_items: 30           # 送入 LLM 前的候选条数（控制成本）
+  max_per_source: 8       # 每个来源最多入选的条数（多源配额制，保证简报覆盖多网站）
+  focus: ""               # 可选：重点关注方向，如 "AI 与半导体"
+  # 关键词过滤（标题+摘要）
+  include_keywords: []    # 例: ["AI", "芯片", "监管", "大模型"]
+  exclude_keywords: ["抽奖", "促销", "双11", "拼多多砍价"]
+  # 去重
+  dedupe_keep_days: 3     # 历史去重窗口（天）
+  overlap_threshold: 0.55 # 标题相似度阈值（0-1，越大越严格）
+  # 推送
+  push:
+    enabled: true
+    channels: []          # 留空=推送所有 enabled 渠道；例: [telegram, wecom]
+  output_dir: data/output # 简报存档目录
+
+# ---------------- 调度（与 cron 二选一）----------------
+schedule:
+  time: "08:00"           # 每天推送时间
+  timezone: Asia/Shanghai
+  catch_up: true          # 错过计划时间（如关机）时，下次启动自动补发
+  worker_enabled: true    # 是否用内置 worker 进程（false 则用 cron）
+
+# ---------------- 推送渠道 ----------------
+# 每个渠道独立开关；密钥一律用 ${ENV:-} 注入
+channels:
+  telegram:
+    enabled: false
+    bot_token: ${TELEGRAM_BOT_TOKEN:-}
+    chat_id: ${TELEGRAM_CHAT_ID:-}
+
+  wecom:                  # 企业微信群机器人
+    enabled: false
+    webhook: ${WECOM_WEBHOOK:-}
+
+  feishu:
+    enabled: false
+    webhook: ${FEISHU_WEBHOOK:-}
+
+  dingtalk:
+    enabled: false
+    webhook: ${DINGTALK_WEBHOOK:-}
+
+  smtp:                   # 邮件（发件箱用 SMTP 授权码）
+    enabled: true
+    host: smtp.qq.com     # QQ 邮箱发件服务器（163 用 smtp.163.com，Gmail 用 smtp.gmail.com）
+    port: 465
+    use_ssl: true
+    user: ${SMTP_USER:-}            # 发件邮箱（如 you@qq.com）
+    password: ${SMTP_PASSWORD:-}    # 授权码（邮箱设置里生成，非登录密码）
+    from: ${SMTP_FROM:-}            # 显示发件人，留空=用 user
+    from_name: 个人智能工作台        # 收件箱里显示的发件人名称
+    to: you@qq.com           # 收件人（你的 QQ 邮箱，QQ→QQ 投递已验证可靠）
+
+  webhook:                # 通用 Webhook：Server酱 / PushPlus / WxPusher / Bark
+    enabled: false
+    services:
+      serverchan:         # 微信推送（Server酱3，免费 5 条/天）
+        enabled: true
+        url: "https://sctapi.ftqq.com/${SENDKEY:-}.send"
+        method: POST
+        data: {title: "{title}", desp: "{content}"}
+      pushplus:           # 微信推送（PushPlus，免费 200 条/天）
+        enabled: false
+        url: "https://www.pushplus.plus/send"
+        method: POST
+        json: {token: "${PUSHPLUS_TOKEN:-}", title: "{title}", content: "{content}"}
+      wxpusher:           # 微信推送（WxPusher）
+        enabled: false
+        url: "http://wxpusher.zjiecode.com/api/send/message"
+        method: POST
+        json: {appToken: "${WXPUSHER_APP_TOKEN:-}", content: "{content}", summary: "{title}", uids: ["${WXPUSHER_UID:-}"]}
+      bark:               # iOS 推送
+        enabled: false
+        path: true
+        url: "https://api.day.app/${BARK_KEY:-}/{title}/{content}"
+
+# ---------------- 可观测性 ----------------
+status_server:
+  enabled: true
+  host: 127.0.0.1
+  port: 8123
+
+# ---------------- Web 管理界面（Streamlit）----------------
+webui:
+  clean_ui: true          # 隐藏 Streamlit 默认头部/页脚装饰
+  max_log_lines: 500      # 日志页最大显示行数

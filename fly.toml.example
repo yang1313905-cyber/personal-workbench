@@ -1,0 +1,23 @@
+# Fly.io 配置模板（复制为 fly.toml 并把 app 换成你的应用名）
+# 首次部署：fly launch --no-deploy && fly secrets set LLM_API_KEY=... TELEGRAM_BOT_TOKEN=...
+# 然后：fly deploy
+app = "your-workbench-app-name"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # 时区等可在此覆盖
+  # TZ = "Asia/Shanghai"
+
+[http_service]
+  internal_port = 8501
+  force_https = true
+  auto_stop_machines = "stop"   # 无流量自动休眠（省免费额度）
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[mounts]]
+  # 可选：持久化 data 目录（免费额度包含约 1GB 起，按账号政策）
+  source = "workbench_data"
+  destination = "/app/data"
