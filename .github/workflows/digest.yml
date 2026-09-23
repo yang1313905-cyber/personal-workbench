@@ -66,7 +66,10 @@ jobs:
           restore-keys: |
             wb-state-
 
+      # 定时路径与手动路径拆成两个 step，正常路径不含任何表达式，
+      # 避免 schedule 事件下 inputs 上下文缺失导致无人值守的定时运行直接失败。
       - name: Generate digest and send email
+        if: ${{ github.event.inputs.force != 'true' }}
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -74,12 +77,18 @@ jobs:
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
           TZ: Asia/Shanghai
-          FORCE: ${{ inputs.force }}
-        run: |
-          set -euo pipefail
-          args=()
-          if [ "${FORCE}" = "true" ]; then args+=(--force); fi
-          python scripts/daily_digest.py "${args[@]}"
+        run: python scripts/daily_digest.py
+
+      - name: Generate digest and send email (forced resend)
+        if: ${{ github.event.inputs.force == 'true' }}
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          TZ: Asia/Shanghai
+        run: python scripts/daily_digest.py --force
 
       - name: Save state
         if: always()
