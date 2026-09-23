@@ -178,33 +178,39 @@ def test_llm_chat_path_works():
 
 
 def test_llm_fallback_digest():
-    """LLM 不可用时本地兜底应产出清晰简报，并带失败原因。"""
+    """LLM 不可用时：兜底文本按「编号契约」输出，渲染后仍有真实标题与链接、并标注失败原因。"""
+    from workbench.modules.news_digest import render
     from workbench.modules.news_digest.distill import fallback_digest
-    text = fallback_digest([{"title": "测试新闻", "source_name": "Mock",
-                            "summary": "内容", "link": "http://x"}],
-                           reason="401 Unauthorized")
-    assert "测试新闻" in text
-    assert "http://x" in text
-    assert "本地兜底" in text
-    assert "401 Unauthorized" in text  # 原因必须可见
-    # 无原因时也不报错
-    assert fallback_digest([])  # 空列表兜底
+
+    items = [{"title": "测试新闻", "source_name": "Mock", "summary": "内容",
+              "link": "http://x", "published": "", "category": ""}]
+    raw = fallback_digest(items, reason="401 Unauthorized")
+    assert "[1]" in raw and "内容" in raw          # 只输出编号 + 分析，不自己写标题
+    assert "测试新闻" not in raw                    # 标题不由模型/兜底文本提供
+
+    # 渲染后：标题与链接来自真实素材，兜底模式与失败原因都被标注
+    built = render.build(render.parse(raw), items, "2026-09-23",
+                         used_llm=False, llm_error="401 Unauthorized")
+    md = built["markdown"]
+    assert "测试新闻" in md and "http://x" in md
+    assert "本地兜底模式" in md
+    assert "401 Unauthorized" in md                # 原因必须可见
+    assert fallback_digest([])                     # 空列表兜底不报错
 
 
-def test_sources_in_text_detects_multi_source():
-    """多源校验：能识别正文引用了哪些来源（含短名匹配）。"""
-    from workbench.modules.news_digest.distill import _sources_in_text
+def test_multi_source_check_uses_resolved_indices():
+    """多源校验：按素材编号回填后的真实来源统计（模型不写来源名，不能再靠字符串匹配）。"""
+    from workbench.modules.news_digest.distill import _highlight_sources
     items = [
         {"source_name": "华尔街见闻"},
         {"source_name": "The Verge"},
         {"source_name": "Reuters (via Google News)"},
         {"source_name": "TechCrunch"},
     ]
-    text = "## 今日重点\n- 标题（华尔街见闻）\n- 标题（The Verge）\n- 标题（Reuters）"
-    used = _sources_in_text(text, items)
-    assert "华尔街见闻" in used
-    assert "The Verge" in used
-    assert "Reuters (via Google News)" in used  # 通过短名 "Reuters" 匹配到
+    parsed = {"highlights": [{"index": 1, "text": "甲"}, {"index": 3, "text": "乙"},
+                             {"index": 99, "text": "越界应忽略"}]}
+    used = _highlight_sources(parsed, items)
+    assert used == {"华尔街见闻", "Reuters (via Google News)"}
     assert "TechCrunch" not in used
 
 

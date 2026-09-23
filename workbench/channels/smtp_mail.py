@@ -18,9 +18,9 @@ from __future__ import annotations
 import logging
 import smtplib
 from email.message import EmailMessage
-from html import escape as html_escape
 
 from .base import Channel
+from .markdown_email import md_to_text, render_email
 
 log = logging.getLogger("workbench.channel.smtp")
 
@@ -42,13 +42,11 @@ class SMTPChannel(Channel):
         sender = self.cfg.get("from") or self.cfg["user"]
         msg["From"] = formataddr((self.cfg.get("from_name", "个人智能工作台"), sender))
         msg["To"] = self.cfg["to"]
-        msg.set_content(content)
-        # 附带一份保留换行的简单 HTML 版本，手机邮件客户端显示更好
-        body_html = (
-            "<html><body><pre style='font-family:-apple-system,sans-serif;"
-            f"white-space:pre-wrap;font-size:14px'>{html_escape(content)}</pre></body></html>"
-        )
-        msg.add_alternative(body_html, subtype="html")
+
+        # 纯文本版（不支持 HTML 的客户端 / 通知摘要用），链接保留 URL 便于复制
+        msg.set_content(md_to_text(content))
+        # HTML 版：把简报 Markdown 渲染成有字体层级、可点击的邮件正文
+        msg.add_alternative(render_email(content, subject=title), subtype="html")
 
         host = self.cfg["host"]
         port = int(self.cfg.get("port", 465))

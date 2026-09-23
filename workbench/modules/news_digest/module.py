@@ -1,6 +1,7 @@
 """新闻简报模块（News Digest Module）：工作台第一个业务模块。
 
-流水线：抓取 → 关键词过滤 → 去重 → 排序取 Top-N → LLM 蒸馏 → 存档 → 推送。
+流水线：抓取 → 关键词过滤 → 去重 → 排序取 Top-N → LLM 蒸馏 → 渲染（回填真实链接）
+        → 存档 → 推送。
 每一步都独立、可替换、可单独调试。模块只依赖 core 提供的 Context。
 """
 from __future__ import annotations
@@ -13,7 +14,7 @@ from typing import Optional
 from ...channels import broadcast
 from ...core.registry import Module, register
 from ...core.status import StatusStore
-from . import cleaner, distill, fetcher
+from . import cleaner, distill, fetcher, render
 
 log = logging.getLogger("workbench.news")
 
@@ -56,29 +57,37 @@ def run(ctx) -> dict:
                  len(items), int(nd.get("max_per_source", 8)), len(top))
 
     # 5. LLM 蒸馏（失败自动降级本地兜底；原因记录到状态，页面可直接展示）
-    text, used_llm, llm_error = distill.compose(top, date_str, cfg)
+    raw_text, used_llm, llm_error = distill.compose(top, date_str, cfg)
 
-    # 6. 存档（即使推送失败，本地始终有完整记录）
+    # 6. 渲染：按素材编号回填真实标题/来源/时间/原文链接，生成带层级的简报正文
+    built = render.build(
+        render.parse(raw_text), top, date_str,
+        used_llm=used_llm, llm_error=llm_error,
+        fetched_total=fetched_total, kept_total=len(items),
+    )
+    text = built["markdown"]
+    subject = built["subject"]
+    ctx.log.info("简报渲染完成：精选 %d 条，正文 %d 字符", built["matched"], len(text))
+
+    # 7. 存档（即使推送失败，本地始终有完整记录）
     out_dir = Path(nd.get("output_dir", cfg["paths"]["output"]))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / f"digest-{date_str}.md"
     out_file.write_text(text, encoding="utf-8")
 
-    # 7. 推送（多渠道并行，单渠道失败不影响其他）
+    # 8. 推送（多渠道并行，单渠道失败不影响其他）
     push_results: dict = {}
     push_cfg = nd.get("push", {})
     if push_cfg.get("enabled", True):
         only: Optional[list] = push_cfg.get("channels") or None
-        push_results = broadcast(
-            f"📰 今日新闻简报 {date_str}", text, cfg, ctx.log, only=only
-        )
+        push_results = broadcast(subject, text, cfg, ctx.log, only=only)
 
-    # 8. 落库：只有成功产出简报的条目才标记"已见"，避免浪费去重名额
+    # 9. 落库：只有成功产出简报的条目才标记"已见"，避免浪费去重名额
     ctx.state.mark_seen_many(items)
     ctx.state.mark_digest(date_str, text, sorted(push_results) if push_results else [])
     ctx.state.prune(int(nd.get("dedupe_keep_days", 3)))
 
-    # 9. 状态更新（可观测性）
+    # 10. 状态更新（可观测性）
     status.update(
         module="news_digest",
         digest_date=date_str,

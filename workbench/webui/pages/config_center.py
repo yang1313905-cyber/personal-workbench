@@ -171,15 +171,29 @@ def _channels_tab() -> None:
             if cid == "smtp":
                 with st.form(f"smtp_cfg_{cid}", clear_on_submit=False):
                     c_host = st.text_input("SMTP 主机", str(cc.get("host", "")), key="smtp_host")
-                    c_port = st.number_input("端口", 1, 65535, int(cc.get("port", 465)), key="smtp_port")
+                    # 端口允许写成 ${SMTP_PORT:-465} 这类环境变量表达式（云端用 Secret 覆盖），
+                    # 因此不能无条件当整数解析，否则配置页会直接报错。
+                    raw_port = cc.get("port", 465)
+                    try:
+                        c_port = st.number_input("端口", 1, 65535, int(raw_port), key="smtp_port")
+                        port_is_int = True
+                    except (TypeError, ValueError):
+                        c_port = st.text_input(
+                            "端口", str(raw_port), key="smtp_port",
+                            help="可填数字；也可保留 ${SMTP_PORT:-465} 这类环境变量表达式",
+                        )
+                        port_is_int = False
                     c_ssl = st.toggle("SSL", bool(cc.get("use_ssl", True)), key="smtp_ssl")
                     if st.form_submit_button("💾 保存 SMTP 参数"):
                         try:
+                            port_val = int(c_port) if port_is_int else str(c_port).strip()
+                            if not str(port_val):
+                                raise ValueError("端口不能为空")
                             ed.set("channels.smtp.host", c_host)
-                            ed.set("channels.smtp.port", int(c_port))
+                            ed.set("channels.smtp.port", port_val)
                             ed.set("channels.smtp.use_ssl", bool(c_ssl))
                             _save(ed, "SMTP 参数已保存")
-                        except KeyError as e:
+                        except (KeyError, ValueError) as e:
                             st.error(f"保存失败：{e}")
 
             env_keys = ce.CHANNEL_ENV_KEYS.get(cid, [])
