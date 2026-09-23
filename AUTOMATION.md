@@ -73,6 +73,24 @@ launchctl enable    gui/$(id -u)/com.dsh.personal-workbench.daily
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dsh.personal-workbench.daily.plist
 ```
 
+## 简报格式（2026-09-23 改版）
+
+邮件正文由「素材编号契约 + 程序渲染」两层构成：
+
+1. **模型只输出编号与分析**：素材在 Prompt 里带 `[n]` 编号，模型按 `[n] 分析内容` 输出，
+   不写标题、不写来源、不写链接。
+2. **程序回填真实信息**：`workbench/modules/news_digest/render.py` 依据编号从真实抓取结果
+   回填标题、来源、时间与原文链接，生成带层级的 Markdown。
+   这样链接永远指向真实原文，杜绝模型编造 URL、标题与原文不符。
+3. **邮件渲染**：`workbench/channels/markdown_email.py` 把 Markdown 渲染成内联样式 HTML
+   （22px 报头 / 15px 章节 / 16px 条目标题+序号 / 14px 正文 / 12px 来源时间），
+   标题即可点击的超链接；同时生成保留 URL 的纯文本版作为兜底。
+
+其它要点：
+- 重点条目按重要性**降序编号**；末尾「其他值得一读」附带条目级链接，方便随时跳转。
+- 模型若没按编号格式输出，会自动纠正重写一次；仍失败则按排序降级渲染，邮件不会残缺。
+- 分析开头若复述标题（模型常犯），由程序确定性删除该句。
+
 ## 为什么项目放在 ~/personal-workbench
 
 macOS 的 TCC 隐私保护不允许 launchd 派生的后台进程读取 `~/Desktop`、`~/Documents`、`~/Downloads`，

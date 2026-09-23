@@ -151,6 +151,33 @@ def _meta_line(item: dict) -> str:
     return " · ".join(parts)
 
 
+def _dedupe_title(analysis: str, title: str) -> str:
+    """删掉分析里对标题的复述。
+
+    标题已经以大字显示在分析正上方，模型却经常仍以「标题。这说明……」开头
+    （实测 GLM-4-Flash 只有部分时候听劝），所以这里做一次确定性的兜底清理：
+    若第一句与标题高度重合，就去掉这句。
+    """
+    a = re.sub(r"^(?:分析|点评|解读|看点|核心事实)\s*[:：]\s*", "", (analysis or "").strip()).strip()
+    t = _strip_inline_md(title or "")
+    if not a or not t:
+        return a
+
+    parts = re.split(r"(?<=[。！？!?；;])\s*", a, maxsplit=1)
+    first = parts[0].strip()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+
+    norm = lambda s: re.sub(r"[\s。，、：:；;“”\"'’‘（）()\[\]【】\-—·!！?？]+", "", s).lower()  # noqa: E731
+    nf, nt = norm(first), norm(t)
+    # 判定条件偏严：既要"整句"（≥3 字），又要与标题相似度 ≥0.6，
+    # 否则容易把正常的分析首句误删。
+    if len(nf) >= 3 and nt:
+        import difflib
+        if difflib.SequenceMatcher(None, nf, nt).ratio() >= 0.6:
+            return rest
+    return a
+
+
 def resolve(parsed: Dict, items: List[dict]) -> Tuple[List[dict], set]:
     """把编号解析为真实素材。返回 (命中的重点列表, 已用编号集合)。
 
@@ -203,13 +230,16 @@ def build(parsed: Dict, items: List[dict], date_str: str, *,
         it = entry["item"]
         title = _md_link_text(it.get("title") or "（无标题）")
         url = _md_url(it.get("link") or "")
+        analysis = _dedupe_title(entry["analysis"], it.get("title") or "")
+        if not analysis.strip():  # 整段都是标题复述，退回摘要，避免正文开天窗
+            analysis = (it.get("summary") or "").strip()[:200] or entry["analysis"]
         if url:
             lines.append(f"### {n}. [{title}]({url})")
         else:
             lines.append(f"### {n}. {title}")
         lines.append(f"*{_meta_line(it)}*")
         lines.append("")
-        lines.append(entry["analysis"])
+        lines.append(analysis)
         lines.append("")
 
     trend = (parsed.get("trend") or "").strip()

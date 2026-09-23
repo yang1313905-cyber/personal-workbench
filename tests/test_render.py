@@ -151,3 +151,37 @@ def test_plain_text_keeps_urls():
     assert "【今日重点】" in text
     assert "· 风险" in text
     assert "<" not in text.replace("─", "")       # 不应残留 HTML 标签
+
+
+# ---------------------------------------------------------------- 标题复述清理
+
+def test_analysis_restating_title_is_stripped():
+    """模型常用「标题。这说明……」开头，标题已在正上方大字显示，必须去掉这句。"""
+    parsed = {"highlights": [{"index": 1, "text": "标题1。这说明行业竞争加剧。"}],
+              "trend": "", "signals": []}
+    md = render.build(parsed, ITEMS, "2026-09-23")["markdown"]
+    assert "这说明行业竞争加剧。" in md
+    assert "标题1。这说明" not in md          # 复述部分被删掉
+
+
+def test_analysis_prefix_word_is_stripped():
+    parsed = {"highlights": [{"index": 1, "text": "分析：芯片产能将在四季度释放。"}],
+              "trend": "", "signals": []}
+    body = render.build(parsed, ITEMS, "2026-09-23")["markdown"]
+    assert "分析：芯片产能" not in body
+    assert "芯片产能将在四季度释放。" in body
+
+
+def test_pure_restatement_falls_back_to_summary():
+    """整段只有标题复述时，退回素材摘要，正文不会开天窗。"""
+    parsed = {"highlights": [{"index": 2, "text": "标题2。"}], "trend": "", "signals": []}
+    body = render.build(parsed, ITEMS, "2026-09-23")["markdown"]
+    assert "摘要2" in body
+
+
+def test_real_analysis_is_kept_intact():
+    """正常分析不能被误删。"""
+    text = "马斯克预测中国可能在两三年内补齐算力缺口，这反映出芯片制造的竞争正在加速。"
+    parsed = {"highlights": [{"index": 1, "text": text}], "trend": "", "signals": []}
+    body = render.build(parsed, ITEMS, "2026-09-23")["markdown"]
+    assert text in body
