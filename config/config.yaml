@@ -83,14 +83,16 @@ channels:
 
   smtp:                   # 邮件（发件箱用 SMTP 授权码）
     enabled: true
-    host: smtp.qq.com     # QQ 邮箱发件服务器（163 用 smtp.163.com，Gmail 用 smtp.gmail.com）
-    port: 465
+    # host / port 支持环境变量覆盖：云端（GitHub Actions）若 465 端口被限制，
+    # 可直接在 Secrets 里改 SMTP_PORT=587 而无需改代码；use_ssl 保持布尔值语义。
+    host: ${SMTP_HOST:-smtp.qq.com}   # QQ 邮箱发件服务器（163 用 smtp.163.com，Gmail 用 smtp.gmail.com）
+    port: ${SMTP_PORT:-465}
     use_ssl: true
     user: ${SMTP_USER:-}            # 发件邮箱（如 you@qq.com）
     password: ${SMTP_PASSWORD:-}    # 授权码（邮箱设置里生成，非登录密码）
     from: ${SMTP_FROM:-}            # 显示发件人，留空=用 user
     from_name: 个人智能工作台        # 收件箱里显示的发件人名称
-    to: you@qq.com           # 收件人（你的 QQ 邮箱，QQ→QQ 投递已验证可靠）
+    to: ${SMTP_TO:-you@qq.com}   # 收件人（默认你的 QQ 邮箱；云端由 Secret 覆盖）
 
   webhook:                # 通用 Webhook：Server酱 / PushPlus / WxPusher / Bark
     enabled: false

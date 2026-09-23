@@ -1,0 +1,8 @@
+# 云端（GitHub Actions）运行每日简报所需的最小依赖集。
+# 只包含 news_digest 链路真正 import 的包；不含 streamlit / ruamel（Web 界面专用）、
+# 也不含 APScheduler（仅本地常驻 worker 使用，CI 里用不到）。
+# 目的：让 Actions 安装依赖从 ~1 分钟降到 ~10 秒，并降低失败面。
+requests>=2.31        # HTTP 抓取与推送
+feedparser>=6.0.10    # RSS/Atom 解析
+PyYAML>=6.0           # 配置加载
+python-dotenv>=1.0    # 可选：加载 .env（CI 用 Secrets 注入环境变量，此包非必需但保持一致性）
