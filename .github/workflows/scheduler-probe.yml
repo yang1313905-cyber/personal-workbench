@@ -1,0 +1,25 @@
+# 临时探针：验证 GitHub 的 schedule 调度在本仓库到底能不能触发。
+#
+# 背景：2026-09-24 配置的每日 08:00 定时（0 0 * * *）与 08:30 重试均未触发，
+# 仓库里 event=schedule 的运行数为 0，需要判断这是"偶发延迟/丢弃"还是
+# "本仓库的 schedule 根本没注册"。
+#
+# 做法：每 5 分钟触发一次，观察是否出现 event=schedule 的运行及延迟多久。
+# 结论得出后此文件即删除。
+name: scheduler-probe
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 报告触发信息
+        run: |
+          echo "scheduler-probe fired successfully"
+          echo "UTC now      : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "cron matched : ${{ github.event.schedule }}"
