@@ -82,8 +82,15 @@ def run(ctx) -> dict:
         only: Optional[list] = push_cfg.get("channels") or None
         push_results = broadcast(subject, text, cfg, ctx.log, only=only)
 
-    # 9. 落库：只有成功产出简报的条目才标记"已见"，避免浪费去重名额
-    ctx.state.mark_seen_many(items)
+    # 9. 落库。
+    #    关键：只有「确实送达」才把素材标记为已见。
+    #    原先无论推送成败都标记，导致推送失败后重试时素材已被去重掉，
+    #    简报会变成"今日无重要新闻"——现在重试仍能拿到同一批素材。
+    delivered = (not push_results) or any(push_results.values())
+    if delivered:
+        ctx.state.mark_seen_many(items)
+    else:
+        ctx.log.warning("本次推送全部失败，素材不标记为已见，重试时可重新使用")
     ctx.state.mark_digest(date_str, text, sorted(push_results) if push_results else [])
     ctx.state.prune(int(nd.get("dedupe_keep_days", 3)))
 
