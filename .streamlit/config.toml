@@ -1,7 +1,8 @@
 # Streamlit 全局配置（.streamlit/config.toml）
+# 注意：这里不写 server.port —— 云端平台会自行分配端口并用命令行参数覆盖，
+# 写死端口只会在云端引入"起不来"的风险。本机启动时用 --server.port 指定即可。
 [server]
 headless = true
-port = 8501
 maxUploadSize = 10
 
 [browser]
