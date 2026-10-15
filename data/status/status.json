@@ -1,0 +1,138 @@
+{
+  "last_run": "2026-09-28T14:26:58",
+  "items_fetched": 127,
+  "fetch_errors": [],
+  "updated_at": "2026-09-28T14:27:37",
+  "module": "news_digest",
+  "digest_date": "2026-09-28",
+  "items_kept": 42,
+  "used_llm": true,
+  "output_file": "data/output/digest-2026-09-28.md",
+  "push": {
+    "smtp": true
+  },
+  "errors": [
+    {
+      "time": "2026-08-27T10:15:32",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-27T10:19:00",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-27T10:43:40",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-27T10:45:42",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-27T10:47:59",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-27T10:47:59",
+      "where": "llm",
+      "message": "402 Client Error: Payment Required for url: https://api.siliconflow.cn/v1/chat/completions"
+    },
+    {
+      "time": "2026-08-28T08:23:15",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-28T08:23:15",
+      "where": "llm",
+      "message": "401 Client Error: Unauthorized for url: https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    },
+    {
+      "time": "2026-08-28T08:28:35",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-28T08:49:48",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-28T14:47:27",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-28T14:49:16",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-08-31T15:13:49",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-09-04T08:20:32",
+      "where": "fetch",
+      "message": "3 个来源抓取失败: bbc-tech; bbc-world; reuters-google"
+    },
+    {
+      "time": "2026-09-07T12:49:20",
+      "where": "fetch",
+      "message": "2 个来源抓取失败: bbc-tech; bbc-world"
+    },
+    {
+      "time": "2026-09-10T14:47:59",
+      "where": "fetch",
+      "message": "3 个来源抓取失败: bbc-tech; bbc-world; reuters-google"
+    },
+    {
+      "time": "2026-09-23T12:14:34",
+      "where": "fetch",
+      "message": "3 个来源抓取失败: bbc-tech; bbc-world; reuters-google"
+    },
+    {
+      "time": "2026-09-23T12:50:05",
+      "where": "fetch",
+      "message": "3 个来源抓取失败: bbc-tech; bbc-world; reuters-google"
+    },
+    {
+      "time": "2026-09-23T13:55:51",
+      "where": "fetch",
+      "message": "3 个来源抓取失败: bbc-tech; bbc-world; reuters-google"
+    },
+    {
+      "time": "2026-09-23T13:59:23",
+      "where": "fetch",
+      "message": "3 个来源抓取失败: bbc-tech; bbc-world; reuters-google"
+    }
+  ],
+  "last_error": {
+    "time": "2026-09-23T13:59:23",
+    "where": "fetch",
+    "message": "3 个来源抓取失败: bbc-tech; bbc-world; reuters-google"
+  },
+  "job": {
+    "id": "1f044648",
+    "status": "done",
+    "result": {
+      "module": "news_digest",
+      "date": "2026-09-28",
+      "fetched": 127,
+      "kept": 42,
+      "used_llm": true,
+      "llm_error": null,
+      "output_file": "data/output/digest-2026-09-28.md",
+      "push": {
+        "smtp": true
+      }
+    }
+  },
+  "llm_error": null
+}

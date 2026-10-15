@@ -11,9 +11,13 @@ import streamlit as st
 
 from .. import config_editor as ce
 from .. import context as wctx
+from ..runtime import is_hosted, masked
 
 TIMEZONES = ["Asia/Shanghai", "Asia/Hong_Kong", "Asia/Tokyo", "Europe/London",
              "America/New_York", "America/Los_Angeles", "UTC"]
+
+# 云端模式下不回显、不写入任何密钥：否则密钥会出现在网页 DOM 里，等于公开
+HOSTED = is_hosted()
 
 
 def _save(editor: ce.YamlEditor, msg: str) -> None:
@@ -198,19 +202,43 @@ def _channels_tab() -> None:
 
             env_keys = ce.CHANNEL_ENV_KEYS.get(cid, [])
             if env_keys:
-                st.markdown("**需要配置的环境变量（写入 .env）：**")
-                for key in env_keys:
-                    current = ce.env_value(key)
-                    val = st.text_input(key, value=current, type="password" if "TOKEN" in key or "PASSWORD" in key or "KEY" in key else "default",
-                                        key=f"env_{cid}_{key}")
-                    if st.button(f"💾 保存 {key}", key=f"envsave_{cid}_{key}"):
-                        ce.set_env(key, val.strip())
-                        wctx.invalidate()
-                        st.success(f"{key} 已保存" + ("（已清空）" if not val.strip() else ""))
+                st.markdown("**该渠道需要的环境变量：**")
+                if HOSTED:
+                    st.caption("☁️ 云端模式：密钥由平台 Secrets 管理，此处只显示配置状态，"
+                               "不回显也不可编辑。")
+                    for key in env_keys:
+                        cur = ce.env_value(key)
+                        st.markdown(f"- `{key}`："
+                                    + (f"已配置（{masked(cur)}）" if cur else "**未配置**"))
+                else:
+                    for key in env_keys:
+                        current = ce.env_value(key)
+                        val = st.text_input(key, value=current, type="password" if "TOKEN" in key or "PASSWORD" in key or "KEY" in key else "default",
+                                            key=f"env_{cid}_{key}")
+                        if st.button(f"💾 保存 {key}", key=f"envsave_{cid}_{key}"):
+                            ce.set_env(key, val.strip())
+                            wctx.invalidate()
+                            st.success(f"{key} 已保存" + ("（已清空）" if not val.strip() else ""))
 
 
 def _env_tab() -> None:
-    st.subheader("🔑 环境变量（.env）")
+    st.subheader("🔑 环境变量")
+
+    if HOSTED:
+        st.info("☁️ **云端模式**：所有密钥由平台 Secrets 统一管理。为避免密钥出现在网页里，"
+                "本页只显示「是否已配置」，不回显、不可编辑、也不写入文件。")
+        try:
+            canonical = [k for _, k, _ in ce.load_env(ce.ENV_EXAMPLE_PATH) if k]
+        except Exception:  # noqa: BLE001
+            canonical = []
+        keys = sorted(set(canonical) | {k for _, k, _ in ce.load_env() if k})
+        configured = [k for k in keys if ce.env_value(k)]
+        st.markdown(f"共 **{len(keys)}** 个变量，其中 **{len(configured)}** 个已配置：")
+        for key in keys:
+            cur = ce.env_value(key)
+            st.markdown(f"- `{key}`：" + (f"已配置（{masked(cur)}）" if cur else "**未配置**"))
+        return
+
     st.caption("这里保存的密钥以 ${KEY} 形式注入配置。云端部署时请改用平台 Secrets"
                "（本页在云端为临时文件，实例重启后丢失）。")
 

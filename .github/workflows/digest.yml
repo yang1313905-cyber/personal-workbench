@@ -43,7 +43,8 @@ on:
         default: false
 
 permissions:
-  contents: read
+  # write：需要把每日简报与运行状态提交回仓库，供云端网页版（Streamlit Cloud）读取
+  contents: write
 
 # 同一时间只跑一个，避免重试与定时重叠
 concurrency:
@@ -124,3 +125,22 @@ jobs:
           else
             echo "本次未生成简报（可能因当天已发送而跳过）" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # 把简报存档与运行状态提交回仓库：云端网页版据此展示历史与状态，
+      # 顺便让仓库保持活跃（避免定时工作流因长期无活动被平台停用）。
+      # 这一步失败不影响交付（邮件已经发出），因此 continue-on-error，
+      # 否则会把整次运行标记为失败，触发外部调度器的无谓重试。
+      - name: Persist digest to repo
+        if: always()
+        continue-on-error: true
+        run: |
+          git config user.name "workbench-bot"
+          git config user.email "workbench-bot@users.noreply.github.com"
+          git add -f data/output data/status/status.json
+          if git diff --cached --quiet; then
+            echo "没有新内容需要提交"
+            exit 0
+          fi
+          git commit -m "digest: $(TZ=Asia/Shanghai date +%F) 简报与运行状态 [skip ci]"
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main

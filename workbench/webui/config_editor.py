@@ -197,7 +197,8 @@ def init_env_from_example(path: Path = ENV_PATH) -> int:
 
 # ---------------- 有效配置（只读，密钥打码） ----------------
 
-_SECRET_HINT = ("token", "password", "api_key", "secret", "sendkey", "bark", "uid", "key")
+_SECRET_HINT = ("token", "password", "api_key", "secret", "sendkey", "bark", "uid", "key",
+                "smtp.user", "smtp.to")
 
 
 def _redact(obj, path: str = ""):

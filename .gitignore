@@ -8,8 +8,14 @@ dist/
 build/
 .pytest_cache/
 
-# 运行数据（状态库 / 日志 / 简报输出）
-data/
+# 运行数据：默认全部忽略，但**保留**云端网页版需要读取的内容——
+# 简报存档 data/output/ 与运行状态 data/status/status.json
+# （state.db、日志、登录失败记录等仍不入库）
+data/*
+!data/output/
+!data/status/
+data/status/*
+!data/status/status.json
 
 # 密钥
 .env
