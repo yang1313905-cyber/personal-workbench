@@ -92,7 +92,7 @@ channels:
     password: ${SMTP_PASSWORD:-}    # 授权码（邮箱设置里生成，非登录密码）
     from: ${SMTP_FROM:-}            # 显示发件人，留空=用 user
     from_name: 个人智能工作台        # 收件箱里显示的发件人名称
-    to: ${SMTP_TO:-you@qq.com}   # 收件人（默认你的 QQ 邮箱；云端由 Secret 覆盖）
+    to: ${SMTP_TO:-}   # 收件人（必填：本机写在 .env，云端配在 Secrets）
 
   webhook:                # 通用 Webhook：Server酱 / PushPlus / WxPusher / Bark
     enabled: false
