@@ -1,24 +1,46 @@
 """SQLite 状态存储：去重历史 + 已发送简报记录。
 
 单文件、零外部依赖、并发安全（WAL + 锁）。
+只读文件系统（如云端容器挂载的仓库目录）上会自动回退到临时目录，
+保证 Web 界面能正常打开而不是直接报错。
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
+import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
+
+log = logging.getLogger("workbench.state")
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _dir_writable(path: Path) -> bool:
+    """目标目录是否可写（用一次真实写入探测，比 os.access 可靠）。"""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        probe = path.parent / ".~write_probe"
+        probe.write_text("", "utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
 class StateStore:
     def __init__(self, path: str | Path):
         path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if not _dir_writable(path):
+            fallback = Path(tempfile.gettempdir()) / "workbench-state" / path.name
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            log.warning("状态库 %s 不可写，已回退到临时目录 %s（数据不会持久化）", path, fallback)
+            path = fallback
         self._lock = threading.Lock()
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
