@@ -1,14 +1,14 @@
 {
-  "last_run": "2026-10-16T08:01:27",
-  "items_fetched": 130,
+  "last_run": "2026-10-17T08:01:24",
+  "items_fetched": 131,
   "fetch_errors": [],
-  "updated_at": "2026-10-16T08:01:49",
+  "updated_at": "2026-10-17T08:02:06",
   "module": "news_digest",
-  "digest_date": "2026-10-16",
+  "digest_date": "2026-10-17",
   "items_kept": 45,
   "used_llm": true,
   "llm_error": null,
-  "output_file": "data/output/digest-2026-10-16.md",
+  "output_file": "data/output/digest-2026-10-17.md",
   "push": {
     "smtp": true
   }
