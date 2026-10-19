@@ -1,8 +1,8 @@
 {
-  "last_run": "2026-10-19T08:06:25",
-  "items_fetched": 130,
+  "last_run": "2026-10-19T08:11:24",
+  "items_fetched": 131,
   "fetch_errors": [],
-  "updated_at": "2026-10-19T08:06:55",
+  "updated_at": "2026-10-19T08:12:07",
   "module": "news_digest",
   "digest_date": "2026-10-19",
   "items_kept": 45,
