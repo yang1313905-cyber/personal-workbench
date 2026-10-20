@@ -1,14 +1,14 @@
 {
-  "last_run": "2026-10-19T13:56:27",
-  "items_fetched": 130,
+  "last_run": "2026-10-20T08:01:28",
+  "items_fetched": 129,
   "fetch_errors": [],
-  "updated_at": "2026-10-19T13:56:57",
+  "updated_at": "2026-10-20T08:01:45",
   "module": "news_digest",
-  "digest_date": "2026-10-19",
-  "items_kept": 46,
+  "digest_date": "2026-10-20",
+  "items_kept": 48,
   "used_llm": true,
   "llm_error": null,
-  "output_file": "data/output/digest-2026-10-19.md",
+  "output_file": "data/output/digest-2026-10-20.md",
   "push": {
     "smtp": false
   },
