@@ -114,3 +114,42 @@ def test_digest_contains_clickable_real_link(monkeypatch, tmp_path):
 
     body = state.digests[0][1]
     assert "### 1. [标题一](https://example.com/1)" in body
+
+
+# ---------------------------------------------------------------- 重试上限
+# 保护 2026-10-19 的教训：邮箱授权码失效后外部调度每 5 分钟重试，一天 74 次。
+
+def _load_daily_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "daily_digest_script", ROOT / "scripts" / "daily_digest.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _FakeStatus:
+    def __init__(self, **kw):
+        self.d = dict(kw)
+
+    def read(self):
+        return dict(self.d)
+
+    def update(self, **kw):
+        self.d.update(kw)
+
+
+def test_attempt_counter_increments_and_caps():
+    mod = _load_daily_module()
+    st = _FakeStatus()
+    assert mod._attempts_today(st) == 0
+    for i in range(1, mod.MAX_ATTEMPTS_PER_DAY + 2):
+        assert mod._note_attempt(st) == i
+    assert mod._attempts_today(st) > mod.MAX_ATTEMPTS_PER_DAY   # 会触发停止重试
+
+
+def test_attempt_counter_resets_on_new_day():
+    mod = _load_daily_module()
+    st = _FakeStatus(attempt_date="1999-01-01", attempt_count=99)
+    assert mod._attempts_today(st) == 0          # 跨日期自动归零
+    assert mod._note_attempt(st) == 1

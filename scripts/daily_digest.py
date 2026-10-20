@@ -48,6 +48,27 @@ def already_delivered(ctx) -> bool:
     return bool((status.get("push") or {}).get(PUSH_CHANNEL))
 
 
+# ---------------------------------------------------------------- 重试上限
+# 背景：2026-10-19 邮箱授权码被 QQ 拒绝后，外部调度器每 5 分钟重试一次，
+# 一天打了 74 次——既浪费，又会触发 QQ 的「登录频率受限」把问题拖得更久。
+# 现在每天最多真正尝试 MAX_ATTEMPTS_PER_DAY 次，超过后主动返回 0（视为本次完成），
+# 让外部调度器停止重试；人工补发用 --force 不受此限制。
+MAX_ATTEMPTS_PER_DAY = 6
+
+
+def _attempts_today(status) -> int:
+    data = status.read()
+    if data.get("attempt_date") != today():
+        return 0
+    return int(data.get("attempt_count") or 0)
+
+
+def _note_attempt(status) -> int:
+    n = _attempts_today(status) + 1
+    status.update(attempt_date=today(), attempt_count=n)
+    return n
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="每日简报定时入口")
     parser.add_argument("--force", action="store_true", help="忽略当天记录，强制重新生成并推送")
@@ -63,6 +84,7 @@ def main(argv=None) -> int:
                 "date": today(),
                 "delivered": done,
                 "last_digest_date": ctx.state.last_digest_date(),
+                "attempts_today": _attempts_today(ctx.status),
                 "status": {k: ctx.status.read().get(k) for k in ("digest_date", "push", "output_file")},
             }, ensure_ascii=False, indent=2))
             return 0
@@ -71,6 +93,17 @@ def main(argv=None) -> int:
             log.info("[daily] %s 的简报已成功送达，跳过本次触发（幂等）", today())
             print(f"skip: {today()} 的简报已发送，无需重复执行")
             return 0
+
+        if not args.force:
+            attempts = _note_attempt(ctx.status)
+            if attempts > MAX_ATTEMPTS_PER_DAY:
+                log.error(
+                    "[daily] 今日已尝试 %d 次，达到上限 %d，停止重试。"
+                    "请检查推送配置（例如邮箱授权码是否失效），修好后用 --force 手动补发。",
+                    attempts - 1, MAX_ATTEMPTS_PER_DAY,
+                )
+                print(f"abort: 今日重试已达上限 {MAX_ATTEMPTS_PER_DAY} 次，停止重试（退出码 0，避免外部调度继续打）")
+                return 0
 
         lock = FileLock(digest_lock_path(ctx.config["paths"]["state"]))
         if not lock.acquire():
