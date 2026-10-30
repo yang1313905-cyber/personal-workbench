@@ -1,14 +1,14 @@
 {
-  "last_run": "2026-10-29T08:01:29",
+  "last_run": "2026-10-30T08:01:31",
   "items_fetched": 126,
   "fetch_errors": [],
-  "updated_at": "2026-10-29T08:01:49",
+  "updated_at": "2026-10-30T08:01:47",
   "module": "news_digest",
-  "digest_date": "2026-10-29",
-  "items_kept": 47,
+  "digest_date": "2026-10-30",
+  "items_kept": 46,
   "used_llm": true,
   "llm_error": null,
-  "output_file": "data/output/digest-2026-10-29.md",
+  "output_file": "data/output/digest-2026-10-30.md",
   "push": {
     "smtp": true
   },
@@ -29,6 +29,6 @@
     "where": "llm",
     "message": "500 Server Error: Internal Server Error for url: https://open.bigmodel.cn/api/paas/v4/chat/completions"
   },
-  "attempt_date": "2026-10-29",
+  "attempt_date": "2026-10-30",
   "attempt_count": 1
 }
