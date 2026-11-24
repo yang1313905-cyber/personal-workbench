@@ -49,8 +49,8 @@ def llm_chat(llm_cfg: dict, system: str, user: str) -> str:
         raise RuntimeError(f"LLM 返回格式异常: {str(data)[:500]}") from e
 
 
-def _requirements(nd: dict) -> str:
-    parts = []
+def _requirements(nd: dict, highlight_count: int) -> str:
+    parts = [f"今日重点目标为 {highlight_count} 条"]
     if nd.get("language"):
         parts.append(f"语言：{nd['language']}")
     if nd.get("word_count"):
@@ -88,7 +88,10 @@ def compose(items: List[dict], date_str: str, cfg: dict) -> Tuple[str, bool, Opt
     带纠正指令重写一次（最多一次，避免死循环）。
     """
     nd = cfg.get("news_digest", {})
-    user = build_user_prompt(date_str, items, _requirements(nd))
+    if not items:
+        return fallback_digest([]), False, None
+    highlight_count = min(int(nd.get("highlight_count", 15)), len(items))
+    user = build_user_prompt(date_str, items, _requirements(nd, highlight_count))
     llm_cfg = cfg.get("llm", {})
     try:
         text = retry(
@@ -147,10 +150,10 @@ def compose(items: List[dict], date_str: str, cfg: dict) -> Tuple[str, bool, Opt
     except Exception as e:  # noqa: BLE001
         log.exception("LLM 蒸馏失败，降级为本地兜底简报")
         reason = str(e)
-        return fallback_digest(items, reason), False, reason
+        return fallback_digest(items, reason, highlight_count), False, reason
 
 
-def fallback_digest(items: List[dict], reason: Optional[str] = None) -> str:
+def fallback_digest(items: List[dict], reason: Optional[str] = None, highlight_count: int = 15) -> str:
     """LLM 不可用时的本地兜底简报。
 
     这里同样输出新契约格式（``[编号] 分析``），这样 render.py 能照常补全真实标题
@@ -161,7 +164,7 @@ def fallback_digest(items: List[dict], reason: Optional[str] = None) -> str:
     if not items:
         lines.append("今日无重要新闻（抓取结果为空或全部被过滤）。")
     else:
-        for i in range(1, min(len(items), 5) + 1):
+        for i in range(1, min(len(items), highlight_count) + 1):
             summary = (items[i - 1].get("summary") or "").strip()
             lines.append(f"[{i}] {summary[:200] or '（无摘要）'}")
     return "\n".join(lines)

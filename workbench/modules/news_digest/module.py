@@ -51,10 +51,10 @@ def run(ctx) -> dict:
 
     # 4. 排序取 Top-N 候选（每源配额制，保证候选池覆盖多个来源）
     items.sort(key=lambda it: (float(it.get("weight", 0.0)), it.get("published") or ""), reverse=True)
-    items = cleaner.balance_sources(items, int(nd.get("max_per_source", 8)))
-    top = items[: int(nd.get("max_items", 30))]
+    items = cleaner.balance_sources(items, int(nd.get("max_per_source", 12)))
+    top = items[: int(nd.get("max_items", 65))]
     ctx.log.info("去重后 %d 条，每源限 %d 条，送入蒸馏 %d 条",
-                 len(items), int(nd.get("max_per_source", 8)), len(top))
+                 len(items), int(nd.get("max_per_source", 12)), len(top))
 
     # 5. LLM 蒸馏（失败自动降级本地兜底；原因记录到状态，页面可直接展示）
     raw_text, used_llm, llm_error = distill.compose(top, date_str, cfg)
@@ -64,10 +64,14 @@ def run(ctx) -> dict:
         render.parse(raw_text), top, date_str,
         used_llm=used_llm, llm_error=llm_error,
         fetched_total=fetched_total, kept_total=len(items),
+        highlight_count=int(nd.get("highlight_count", 15)),
+        appendix_limit=int(nd.get("appendix_limit", 30)),
     )
     text = built["markdown"]
     subject = built["subject"]
-    ctx.log.info("简报渲染完成：精选 %d 条，正文 %d 字符", built["matched"], len(text))
+    items_shown = len(built["shown_indices"])
+    ctx.log.info("简报渲染完成：共 %d 条（重点 %d 条），正文 %d 字符",
+                 items_shown, built["matched"], len(text))
 
     # 7. 存档（即使推送失败，本地始终有完整记录）
     out_dir = Path(nd.get("output_dir", cfg["paths"]["output"]))
@@ -88,7 +92,7 @@ def run(ctx) -> dict:
     #    简报会变成"今日无重要新闻"——现在重试仍能拿到同一批素材。
     delivered = (not push_results) or any(push_results.values())
     if delivered:
-        ctx.state.mark_seen_many(items)
+        ctx.state.mark_seen_many([top[i - 1] for i in built["shown_indices"]])
     else:
         ctx.log.warning("本次推送全部失败，素材不标记为已见，重试时可重新使用")
     ctx.state.mark_digest(date_str, text, sorted(push_results) if push_results else [])
@@ -99,6 +103,7 @@ def run(ctx) -> dict:
         module="news_digest",
         digest_date=date_str,
         items_kept=len(items),
+        items_shown=items_shown,
         used_llm=used_llm,
         llm_error=llm_error,
         output_file=str(out_file),
@@ -115,6 +120,7 @@ def run(ctx) -> dict:
         "date": date_str,
         "fetched": fetched_total,
         "kept": len(items),
+        "items_shown": items_shown,
         "used_llm": used_llm,
         "llm_error": llm_error,
         "output_file": str(out_file),

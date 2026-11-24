@@ -100,7 +100,7 @@ def test_fallback_mode_is_annotated():
 
 def test_appendix_contains_links_for_unused_items():
     parsed = {"highlights": [{"index": 1, "text": "甲"}], "trend": "", "signals": []}
-    md = render.build(parsed, ITEMS, "2026-09-23", used_llm=True)["markdown"]
+    md = render.build(parsed, ITEMS, "2026-09-23", highlight_count=1)["markdown"]
     assert "## 其他值得一读" in md
     assert "[标题2](https://example.com/2)" in md
     assert "[标题1](https://example.com/1)" not in md.split("## 其他值得一读")[1]

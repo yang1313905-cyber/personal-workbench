@@ -178,7 +178,7 @@ def _dedupe_title(analysis: str, title: str) -> str:
     return a
 
 
-def resolve(parsed: Dict, items: List[dict]) -> Tuple[List[dict], set]:
+def resolve(parsed: Dict, items: List[dict], limit: Optional[int] = None) -> Tuple[List[dict], set]:
     """把编号解析为真实素材。返回 (命中的重点列表, 已用编号集合)。
 
     编号越界、重复、或分析为空的一律丢弃 —— 宁可少一条，也不给出错误链接。
@@ -186,6 +186,8 @@ def resolve(parsed: Dict, items: List[dict]) -> Tuple[List[dict], set]:
     picked: List[dict] = []
     used: set = set()
     for h in parsed.get("highlights", []):
+        if limit is not None and len(picked) >= limit:
+            break
         i = int(h.get("index") or 0)
         text = (h.get("text") or "").strip()
         if not (1 <= i <= len(items)) or i in used or not text:
@@ -201,29 +203,31 @@ def build(parsed: Dict, items: List[dict], date_str: str, *,
           used_llm: bool = True, llm_error: Optional[str] = None,
           fetched_total: int = 0, kept_total: int = 0,
           highlight_count: int = 5, appendix_limit: int = 10,
-          generated_at: Optional[str] = None) -> Dict[str, str]:
+          generated_at: Optional[str] = None) -> Dict:
     """合成最终简报（Markdown）。
 
-    返回 ``{"markdown": str, "subject": str, "headline": str, "matched": int}``：
+    返回 Markdown、邮件主题、头条、实际重点条数与所有展示素材的编号：
     - ``markdown``：推送与存档正文（带 ``###`` 编号标题与原文链接）
     - ``subject``：邮件主题（含当天头条，收件箱里就能看到重点）
     - ``headline``：头条标题（用于邮件摘要行/预览）
     """
-    picked, used = resolve(parsed, items)
-
-    # 解析不到任何有效编号时（LLM 没按格式输出），降级为按排序取前 N 条，
-    # 保证邮件永远是"有标题有链接"的正常样子。
-    unmatched_note = False
-    if not picked and items:
-        unmatched_note = True
-        for i, it in enumerate(items[:highlight_count], 1):
-            picked.append({"item": it, "analysis": (it.get("summary") or "").strip()[:200] or "（无摘要）"})
-            used.add(i)
+    highlight_count = min(max(0, highlight_count), len(items))
+    picked, used = resolve(parsed, items, limit=highlight_count)
+    model_count = len(picked) if used_llm else 0
+    # 模型漏掉的重点用已排序素材补齐，显示来源摘要以区分编辑分析。
+    for i, item in enumerate(items, 1):
+        if len(picked) >= highlight_count:
+            break
+        if i in used:
+            continue
+        summary = (item.get("summary") or "").strip()[:200] or "（无摘要）"
+        picked.append({"item": item, "analysis": summary})
+        used.add(i)
 
     lines: List[str] = []
-    lines.append("## 今日重点")
-    lines.append("")
-    if not picked:
+    if picked or not items:
+        lines.extend(["## 今日重点", ""])
+    if not items:
         lines.append("今日无重要新闻（抓取结果为空或全部被过滤）。")
         lines.append("")
     for n, entry in enumerate(picked, 1):
@@ -231,13 +235,17 @@ def build(parsed: Dict, items: List[dict], date_str: str, *,
         title = _md_link_text(it.get("title") or "（无标题）")
         url = _md_url(it.get("link") or "")
         analysis = _dedupe_title(entry["analysis"], it.get("title") or "")
+        from_source = n > model_count
         if not analysis.strip():  # 整段都是标题复述，退回摘要，避免正文开天窗
-            analysis = (it.get("summary") or "").strip()[:200] or entry["analysis"]
+            summary = (it.get("summary") or "").strip()[:200]
+            analysis = summary or entry["analysis"]
+            from_source = from_source or bool(summary)
         if url:
             lines.append(f"### {n}. [{title}]({url})")
         else:
             lines.append(f"### {n}. {title}")
-        lines.append(f"*{_meta_line(it)}*")
+        summary_label = " · 来源摘要" if from_source else ""
+        lines.append(f"*{_meta_line(it)}{summary_label}*")
         lines.append("")
         lines.append(analysis)
         lines.append("")
@@ -258,7 +266,8 @@ def build(parsed: Dict, items: List[dict], date_str: str, *,
         lines.append("")
 
     # 附录：未入选重点但值得一读的条目，同样带链接，方便随时跳转
-    appendix = [it for i, it in enumerate(items, 1) if i not in used][:appendix_limit]
+    appendix_indices = [i for i in range(1, len(items) + 1) if i not in used][:max(0, appendix_limit)]
+    appendix = [items[i - 1] for i in appendix_indices]
     if appendix:
         lines.append("## 其他值得一读")
         lines.append("")
@@ -273,12 +282,14 @@ def build(parsed: Dict, items: List[dict], date_str: str, *,
         lines.append("")
 
     stamp = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M")
+    shown_indices = sorted(used | set(appendix_indices))
     foot = (f"个人智能工作台 · {date_str} {stamp.split(' ')[-1]} 生成"
-            f" · 素材 {fetched_total} 条，收录 {kept_total} 条，精选 {len(picked)} 条")
+            f" · 本期 {len(shown_indices)} 条（重点 {len(picked)} 条，快讯 {len(appendix)} 条）"
+            f" · 素材 {fetched_total} 条，收录 {kept_total} 条")
     if not used_llm:
         foot += " · 本次为本地兜底模式（LLM 未参与）"
-    if unmatched_note:
-        foot += " · 分析文本未按格式返回，已自动降级"
+    elif highlight_count and not model_count:
+        foot += " · 分析文本未按格式返回，已补充来源摘要"
     lines.append("---")
     lines.append(f"*{foot}*")
     if not used_llm and llm_error:
@@ -291,4 +302,5 @@ def build(parsed: Dict, items: List[dict], date_str: str, *,
         headline = (picked[0]["item"].get("title") or "").strip()
     short = headline if len(headline) <= 30 else headline[:30] + "…"
     subject = f"📰 {date_str[5:]} 简报｜{short}" if short else f"📰 今日新闻简报 {date_str}"
-    return {"markdown": markdown, "subject": subject, "headline": headline, "matched": len(picked)}
+    return {"markdown": markdown, "subject": subject, "headline": headline,
+            "matched": len(picked), "shown_indices": shown_indices}

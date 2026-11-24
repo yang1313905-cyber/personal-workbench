@@ -92,3 +92,44 @@ sources:
   #   category: tech
   #   weight: 0.8
   #   enabled: true
+
+  # 已通过本机 RSS 抓取验证
+  - id: ithome
+    name: IT之家
+    kind: rss
+    url: https://www.ithome.com/rss/
+    lang: zh
+    category: tech
+    weight: 0.85
+    limit: 60
+    retries: 0
+
+  - id: solidot
+    name: Solidot
+    kind: rss
+    url: https://www.solidot.org/index.rss
+    lang: zh
+    category: science
+    weight: 0.85
+    limit: 40
+    retries: 0
+
+  - id: huggingface
+    name: Hugging Face Blog
+    kind: rss
+    url: https://huggingface.co/blog/feed.xml
+    lang: en
+    category: ai
+    weight: 0.95
+    limit: 40
+    retries: 0
+
+  - id: qbitai
+    name: 量子位
+    kind: rss
+    url: https://www.qbitai.com/feed
+    lang: zh
+    category: ai
+    weight: 0.9
+    limit: 30
+    retries: 0

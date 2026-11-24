@@ -153,3 +153,53 @@ def test_attempt_counter_resets_on_new_day():
     st = _FakeStatus(attempt_date="1999-01-01", attempt_count=99)
     assert mod._attempts_today(st) == 0          # 跨日期自动归零
     assert mod._note_attempt(st) == 1
+
+
+def test_daily_email_contains_45_distinct_stories_when_model_returns_few(monkeypatch, tmp_path):
+    import re
+
+    from workbench.channels import smtp_mail
+    from workbench.core.config import load_yaml
+    from workbench.modules.news_digest import module
+
+    items = [dict(_ITEMS[0], hash=f"h{i}", title=f"Story-{i}", link=f"https://example.com/{i}",
+                  source_id=f"s{i % 6}", published="") for i in range(66)]
+    monkeypatch.setattr(module.fetcher, "fetch_all", lambda *a: (items, []))
+    model_text = "## 今日重点\n[1] 第一条分析\n[1] 重复分析\n[99] 无效编号\n[3] 第三条分析"
+    monkeypatch.setattr(module.distill, "compose", lambda *a: (model_text, True, None))
+
+    messages = []
+
+    class InMemorySMTP:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def login(self, *a):
+            pass
+
+        def send_message(self, message):
+            messages.append(message)
+
+    monkeypatch.setattr(smtp_mail.smtplib, "SMTP_SSL", InMemorySMTP)
+    cfg = _cfg(tmp_path)
+    cfg["news_digest"] = load_yaml(ROOT / "config" / "config.yaml")["news_digest"]
+    cfg["news_digest"]["output_dir"] = str(tmp_path)
+    cfg["channels"] = {"smtp": {"enabled": True, "host": "example.test", "use_ssl": True,
+                                 "user": "sender@example.test", "password": "placeholder",
+                                 "to": "reader@example.test"}}
+    state = _State()
+    result = module.run(_Ctx(cfg, state, _Status()))
+
+    assert result["push"] == {"smtp": True}
+    assert result["items_shown"] == len(state.seen) == 45
+    html = messages[0].get_body(preferencelist=("html",)).get_content()
+    links = re.findall(r'href="(https://example[.]com/\d+)"', html)
+    assert len(links) == len(set(links)) == 45
+    assert html.count("来源摘要") == 13
+    assert "本期 45 条（重点 15 条，快讯 30 条）" in html
