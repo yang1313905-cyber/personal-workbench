@@ -30,7 +30,7 @@ def any_running() -> bool:
         return any(j.get("status") == "running" for j in _JOBS.values())
 
 
-def start_digest(no_push: bool = False, force: bool = False) -> Optional[str]:
+def start_digest(no_push: bool = False, force: bool = False, refresh_only: bool = False) -> Optional[str]:
     """启动后台生成任务。锁被占用（CLI/定时正在跑）时返回 None。
 
     force=True 时跳过历史去重（强制重新生成，同一天可再次生成完整简报）。
@@ -49,6 +49,8 @@ def start_digest(no_push: bool = False, force: bool = False) -> Optional[str]:
 
     def _run():
         try:
+            if refresh_only:
+                ctx.extras["refresh_only"] = True
             if no_push:
                 nd = ctx.config.setdefault("news_digest", {})
                 nd.setdefault("push", {})["enabled"] = False
@@ -66,6 +68,7 @@ def start_digest(no_push: bool = False, force: bool = False) -> Optional[str]:
             ctx.status.record_error("webui.job", str(e))
             ctx.status.update(job={"id": job_id, "status": "error", "error": str(e)})
         finally:
+            ctx.state.close()
             lock.release()
 
     threading.Thread(target=_run, daemon=True, name=f"digest-{job_id}").start()

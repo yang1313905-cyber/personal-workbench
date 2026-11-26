@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 import logging
+import json
+import re
+from zoneinfo import ZoneInfo
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -14,23 +17,32 @@ from typing import Optional
 from ...channels import broadcast
 from ...core.registry import Module, register
 from ...core.status import StatusStore
-from . import cleaner, distill, fetcher, render
+from . import cleaner, distill, fetcher, render, recommend
 
 log = logging.getLogger("workbench.news")
+_URL_RE = re.compile(r"https?://[^\s'\"<>)]+")
+
+
+def _redact_error(msg: str) -> str:
+    return _URL_RE.sub("[redacted-url]", str(msg or ""))[:200]
 
 
 def run(ctx) -> dict:
     cfg = ctx.config
     nd = cfg.get("news_digest", {})
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = datetime.now(ZoneInfo(cfg.get("app", {}).get("timezone", "Asia/Shanghai"))).strftime("%Y-%m-%d")
     http_cfg = cfg.get("http", {})
     status: StatusStore = ctx.status
 
     # 1. 抓取（单源失败不中断整体）
     items, errors = fetcher.fetch_all(cfg.get("feeds", []), http_cfg)
     fetched_total = len(items)
+    safe_status_errors = [
+        {"source": e.get("source") or "未知来源", "error": _redact_error(e.get("error", ""))}
+        for e in errors[:10]
+    ]
     status.update(last_run=datetime.now().isoformat(timespec="seconds"),
-                  items_fetched=fetched_total, fetch_errors=errors[:10])
+                  items_fetched=fetched_total, fetch_errors=safe_status_errors)
     ctx.log.info("抓取完成：共 %d 条，%d 个来源失败", fetched_total, len(errors))
 
     # 2. 关键词过滤
@@ -41,20 +53,29 @@ def run(ctx) -> dict:
                  if cleaner.keyword_ok(it["title"] + " " + it["summary"], include, exclude)]
         ctx.log.info("关键词过滤：%d -> %d", before, len(items))
 
-    # 3. 去重（历史 + 站内；force 时跳过历史去重，用于"强制重新生成"）
-    items = cleaner.dedupe(
-        items,
-        store=None if ctx.get("force_digest") else ctx.state,
-        keep_days=int(nd.get("dedupe_keep_days", 3)),
-        threshold=float(nd.get("overlap_threshold", 0.55)),
-    )
+    # Keep a complete browsable pool, independent of digest delivery history.
+    items = recommend.rank(items, nd)
+    items = cleaner.dedupe(items, threshold=float(nd.get("overlap_threshold", 0.55)))
+    items = recommend.rank(items, nd)
+    out_dir = Path(nd.get("output_dir", cfg["paths"]["output"]))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pool_file = out_dir / "news-latest.json"
+    temporary = pool_file.with_suffix(".tmp")
+    safe_errors = [{"source": e.get("source") or "未知来源"} for e in errors]
+    temporary.write_text(json.dumps({
+        "updated_at": datetime.now().astimezone().isoformat(),
+        "items": items, "errors": safe_errors, "fetched": fetched_total,
+    }, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(pool_file)
+    status.update(items_available=len(items))
+    if ctx.get("refresh_only"):
+        return {"available": len(items), "fetched": fetched_total, "errors": errors}
 
-    # 4. 排序取 Top-N 候选（每源配额制，保证候选池覆盖多个来源）
-    items.sort(key=lambda it: (float(it.get("weight", 0.0)), it.get("published") or ""), reverse=True)
-    items = cleaner.balance_sources(items, int(nd.get("max_per_source", 12)))
-    top = items[: int(nd.get("max_items", 65))]
-    ctx.log.info("去重后 %d 条，每源限 %d 条，送入蒸馏 %d 条",
-                 len(items), int(nd.get("max_per_source", 12)), len(top))
+    ctx.state.prune(int(nd.get("dedupe_keep_days", 3)))
+    candidates = items if ctx.get("force_digest") else [it for it in items if not ctx.state.is_seen(it["hash"])]
+    top = recommend.select(candidates, int(nd.get("max_items", 65)),
+                           int(nd.get("max_per_source", 12)),
+                           float(nd.get("discovery_ratio", 0.2)))
 
     # 5. LLM 蒸馏（失败自动降级本地兜底；原因记录到状态，页面可直接展示）
     raw_text, used_llm, llm_error = distill.compose(top, date_str, cfg)

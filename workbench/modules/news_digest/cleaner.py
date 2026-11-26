@@ -2,8 +2,7 @@
 
 去重策略：
 - 历史去重：同一链接/标题的 hash 已见过则丢弃（避免天天重复报道旧闻）
-- 站内去重：标题 token 的 Jaccard 相似度 ≥ threshold 视为同一事件，
-  保留权重更高的来源
+- 事件去重：比较原标题及归一化的内容词，保留权重更高的来源
 中文分词不做重型处理，用相邻字符 bigram 近似，对标题级去重足够。
 """
 from __future__ import annotations
@@ -11,11 +10,23 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+from functools import lru_cache
 from html.parser import HTMLParser
 from typing import List
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 LATIN_RE = re.compile(r"[a-z0-9]+")
+ENGLISH_STOPWORDS = frozenset("""
+    a about above after again against all am an and any are as at be because been
+    before being below between both but by can could did do does doing down during
+    each few for from further had has have having he her here hers herself him
+    himself his how i if in into is it its itself just may me might more most my
+    myself no nor not now of off on once only or other ought our ours ourselves out
+    over own per same she should so some such than that the their theirs them
+    themselves then there these they this those through to too under until up upon
+    use very was we were what when where which while who whom why will with would
+    you your yours yourself yourselves new report reports said says say company
+""".split())
 
 
 class _TextExtractor(HTMLParser):
@@ -54,6 +65,66 @@ def overlap_ratio(a: set, b: set) -> float:
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
+
+
+_GENERIC_EVENT_WORDS = frozenset("""
+    raise raises raised funding round billion million trillion announce announces
+    announced launch launches launched plan plans deal deals talk talks update
+    updates version latest first year years week weeks month months today market
+    markets price prices stock stocks share shares global world tech user users
+    feature features service services system systems model models industry ceo
+    chief founder startup startups firm firms
+""".split())
+_CASED_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+
+
+def _stem_token(word: str) -> str:
+    return word[:-1] if word.isascii() and len(word) > 4 and word.endswith("s") else word
+
+
+@lru_cache(maxsize=4096)
+def _event_tokens(title: str) -> tuple[set, set, set, str]:
+    original = tokens(title)
+    content = {
+        _stem_token(word)
+        for word in original
+        if len(word) >= 2 and word not in ENGLISH_STOPWORDS and word not in _GENERIC_EVENT_WORDS
+    }
+    entities: set[str] = set()
+    lead_entity = ""
+    raw_words = _CASED_TOKEN_RE.findall(title or "")
+    for idx, word in enumerate(raw_words):
+        low = word.lower()
+        if len(low) < 2 or low in ENGLISH_STOPWORDS or low in _GENERIC_EVENT_WORDS:
+            continue
+        has_upper = any(c.isupper() for c in word)
+        has_digit = any(c.isdigit() for c in word)
+        has_alpha = any(c.isalpha() for c in word)
+        if has_upper or (has_digit and has_alpha):
+            stemmed = _stem_token(low)
+            entities.add(stemmed)
+            if idx == 0:
+                lead_entity = stemmed
+    return original, content, entities, lead_entity
+
+
+def is_same_event(title_a: str, title_b: str, threshold: float = 0.55) -> bool:
+    """Use title similarity, with an entity-guarded second pass for reworded coverage."""
+    raw_a, content_a, entities_a, lead_a = _event_tokens(title_a)
+    raw_b, content_b, entities_b, lead_b = _event_tokens(title_b)
+    # 两条新闻首词分别指向互不出现的不同主体（如 OpenAI vs Anthropic），不合并为同一事件
+    if (lead_a and lead_b and lead_a != lead_b
+            and lead_a not in entities_b and lead_b not in entities_a):
+        return False
+    if overlap_ratio(raw_a, raw_b) >= threshold:
+        return True
+    if not content_a or not content_b:
+        return False
+    # 两条新闻各自明确指向不同的主体/品牌且无共同实体时，绝不合并为同一事件
+    if entities_a and entities_b and not (entities_a & entities_b):
+        return False
+    common = len(content_a & content_b)
+    return common >= 3 and common / min(len(content_a), len(content_b)) >= 0.42
 
 
 def keyword_ok(text: str, include: List[str], exclude: List[str]) -> bool:
@@ -95,14 +166,12 @@ def dedupe(items: List[dict], store=None, keep_days: int = 3, threshold: float =
     store 为 None 时跳过历史去重（用于"强制重新生成"）。
     """
     kept: List[dict] = []
-    pool: List[tuple] = []  # (title_tokens, item)
     ordered = sorted(items, key=lambda it: float(it.get("weight", 0.0)), reverse=True)
     for it in ordered:
         if store is not None and store.is_seen(it["hash"]):
             continue
-        t = tokens(it.get("title", ""))
-        if any(overlap_ratio(t, other) >= threshold for other, _ in pool):
+        title = it.get("title") or ""
+        if any(is_same_event(title, other.get("title") or "", threshold) for other in kept):
             continue
-        pool.append((t, it))
         kept.append(it)
     return kept

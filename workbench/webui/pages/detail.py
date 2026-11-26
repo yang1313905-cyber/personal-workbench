@@ -4,6 +4,7 @@ from __future__ import annotations
 import streamlit as st
 
 from .. import data as wdata
+from .. import digest_view
 
 
 def render() -> None:
@@ -34,6 +35,6 @@ def render() -> None:
         channels = "、".join(rec["channels"]) if rec["channels"] else "（无推送记录）"
         st.caption(f"推送渠道：{channels}　·　生成于 {rec['created_at']}（UTC）")
 
-    st.markdown(content)
+    digest_view.render_digest_html(content)
     st.download_button("⬇️ 下载 Markdown", content,
                        file_name=f"digest-{sel}.md", use_container_width=True)

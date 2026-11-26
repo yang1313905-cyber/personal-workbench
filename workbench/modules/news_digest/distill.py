@@ -8,16 +8,37 @@
 """
 from __future__ import annotations
 
+import json
 import logging
+import re
+import unicodedata
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from difflib import SequenceMatcher
 from typing import List, Optional, Tuple
 
 import requests
 
 from ...core.retry import retry
-from .prompts import SYSTEM_PROMPT, build_user_prompt
+from .cleaner import ENGLISH_STOPWORDS, is_same_event, overlap_ratio
+from .prompts import (
+    ANALYSIS_SYSTEM_PROMPT,
+    SYNTHESIS_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    build_analysis_prompt,
+    build_synthesis_prompt,
+    build_user_prompt,
+    candidate_ids,
+)
 from .render import parse as parse_digest
 
 log = logging.getLogger("workbench.news.distill")
+_BATCH_SIZE = 1
+_MAX_WORKERS = 3
+_MAX_RECOVERIES = 4
+_SELECTION_TIMEOUT = 60.0
+_ANALYSIS_TIMEOUT = 45.0
+_SYNTHESIS_TIMEOUT = 60.0
 
 
 def llm_chat(llm_cfg: dict, system: str, user: str) -> str:
@@ -50,14 +71,16 @@ def llm_chat(llm_cfg: dict, system: str, user: str) -> str:
 
 
 def _requirements(nd: dict, highlight_count: int) -> str:
-    parts = [f"今日重点目标为 {highlight_count} 条"]
+    parts = [f"今日重点目标为 {highlight_count} 条，优先覆盖兴趣匹配素材"]
+    if nd.get("interest_keywords"):
+        parts.append("兴趣关键词：" + "、".join(nd["interest_keywords"]))
     if nd.get("language"):
         parts.append(f"语言：{nd['language']}")
     if nd.get("word_count"):
         parts.append(f"字数：{nd['word_count']} 字")
     if nd.get("focus"):
         parts.append(f"重点关注：{nd['focus']}")
-    return "；".join(parts) or "默认要求"
+    return "；".join(parts)
 
 
 def _highlight_sources(parsed: dict, items: List[dict]) -> set:
@@ -76,81 +99,232 @@ def _highlight_sources(parsed: dict, items: List[dict]) -> set:
     return used
 
 
-def _valid_highlights(parsed: dict, items: List[dict]) -> list:
-    return [h for h in parsed.get("highlights", [])
-            if 1 <= int(h.get("index") or 0) <= len(items)]
+def _response_list(text: str, key: str) -> list:
+    """Find the expected JSON object even when surrounded by fences or prose."""
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            obj, _ = decoder.raw_decode(text, match.start())
+        except (ValueError, RecursionError):
+            continue
+        value = obj.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _select_highlights(proposed: List[str], candidates: dict[str, dict],
+                       limit: int, threshold: float) -> List[str]:
+    titles = {key: item.get("title") or "" for key, item in candidates.items()}
+    sources = {key: item.get("source_name") or item.get("source_id") or ""
+               for key, item in candidates.items()}
+
+    def duplicates(key, others):
+        return any(is_same_event(titles[key], titles[other], threshold) for other in others)
+
+    selected = []
+    for key in dict.fromkeys([*proposed, *candidates]):
+        if len(selected) == limit:
+            break
+        if not duplicates(key, selected):
+            selected.append(key)
+
+    minimum = min(3, len(selected), len(set(sources.values()) - {""}))
+    if minimum < 2:
+        return selected
+    cap = max(1, len(selected) * 3 // 5)
+
+    def penalty(counts):
+        missing = minimum - sum(bool(source) and count > 0 for source, count in counts.items())
+        excess = sum(max(0, count - cap) for count in counts.values())
+        return max(0, missing), excess
+
+    while True:
+        counts = Counter(sources[key] for key in selected)
+        current = penalty(counts)
+        if current == (0, 0):
+            return selected
+
+        incoming = [key for key in candidates if key not in selected and sources[key]]
+        incoming.sort(key=lambda key: counts[sources[key]])
+        outgoing = sorted(reversed(selected), key=lambda key: counts[sources[key]], reverse=True)
+        replacement = None
+        for key in incoming:
+            for other in outgoing:
+                if sources[key] == sources[other]:
+                    continue
+                adjusted = counts.copy()
+                adjusted[sources[other]] -= 1
+                adjusted[sources[key]] += 1
+                remaining = (pick for pick in selected if pick != other)
+                if penalty(adjusted) < current and not duplicates(key, remaining):
+                    replacement = other, key
+                    break
+            if replacement:
+                break
+        if not replacement:
+            return selected
+        other, key = replacement
+        selected[selected.index(other)] = key
+
+
+def _normalized_title(text: str) -> str:
+    return "".join(char for char in unicodedata.normalize("NFKC", text).casefold() if char.isalnum())
+
+
+def _title_match(echo: str, title: str, other_titles: List[str]) -> bool:
+    if not echo or not title:
+        return False
+    score = SequenceMatcher(None, echo, title, autojunk=False).ratio()
+    substring = min(len(echo), len(title)) >= 12 and (echo in title or title in echo)
+    if score < 0.55 and not substring:
+        return False
+    return all(SequenceMatcher(None, echo, other, autojunk=False).ratio() < score for other in other_titles)
+
+
+def _evidence_tokens(text: str, known_entities: frozenset[str] = frozenset()) -> set[str]:
+    text = unicodedata.normalize("NFKC", text)
+    words = {
+        word.casefold() for word in re.findall(r"[A-Za-z0-9]+", text)
+        if (len(word) >= 4 or word.isdigit() or word.casefold() in known_entities
+            or (len(word) >= 2 and word.isupper()))
+        and word.casefold() not in ENGLISH_STOPWORDS
+    }
+    for sequence in re.findall(r"[\u4e00-\u9fff]{4,}", text):
+        words.update(sequence[i:i + 4] for i in range(len(sequence) - 3))
+    return words
+
+
+def verify_batch_alignment(entries: list, batch: dict[str, dict]) -> dict[str, str]:
+    """Accept only unambiguous IDs, matching title echoes and consistent evidence."""
+    titles = {key: _normalized_title(item.get("title") or "") for key, item in batch.items()}
+    evidence = {
+        key: _evidence_tokens(f"{item.get('title') or ''} {item.get('summary') or ''}")
+        for key, item in batch.items()
+    }
+    frequencies = Counter(token for tokens in evidence.values() for token in tokens)
+    exclusive = {token for token, count in frequencies.items() if count == 1}
+    known_entities = frozenset(token for token in frequencies if len(token) < 4)
+
+    records = [entry for entry in entries if isinstance(entry, dict) and isinstance(entry.get("id"), str)]
+    returned_ids = Counter(entry["id"] for entry in records)
+    verified = {}
+    for entry in records:
+        key = entry["id"]
+        if key not in batch or returned_ids[key] != 1:
+            continue
+        echo, analysis = entry.get("title_echo"), entry.get("analysis")
+        if not isinstance(echo, str) or not isinstance(analysis, str) or not analysis.strip():
+            continue
+        if not _title_match(_normalized_title(echo), titles[key],
+                            [title for other, title in titles.items() if other != key]):
+            continue
+
+        tokens = _evidence_tokens(analysis, known_entities)
+        own = evidence[key]
+        if (tokens & (exclusive - own) and not tokens & (exclusive & own)
+                and overlap_ratio(tokens, own) < 0.50):
+            continue
+
+        # Keep all model text inside the one Markdown line owned by this item.
+        verified[key] = " ".join(analysis.split())
+    return verified
+
+
+def _call(llm_cfg: dict, system: str, user: str, *, stage: str,
+          attempts: int = 1) -> Tuple[str, Optional[str]]:
+    try:
+        return retry(lambda: llm_chat(llm_cfg, system, user),
+                     attempts=attempts, delay=3.0, what=stage), None
+    except Exception as exc:  # noqa: BLE001
+        reason = str(exc) or type(exc).__name__
+        log.warning("%s失败：%s", stage, reason)
+        return "", reason
+
+
+_SIGNAL_HEADER_ONLY_RE = re.compile(r"^\*{0,2}\s*(?:信号|风险|观察点|后续观察|趋势|信号与风险)\s*\*{0,2}\s*[:：]?\s*$")
+
+
+def _clean_signals(signals: List[str]) -> List[str]:
+    return [s for s in signals if s.strip() and not _SIGNAL_HEADER_ONLY_RE.match(s.strip())]
+
+
+def _source_summary(item: dict) -> str:
+    return " ".join((item.get("summary") or "").split())[:200] or "（无摘要）"
+
+
+def _stage_cfg(llm_cfg: dict, *, max_timeout: float, max_tokens: int) -> dict:
+    cfg = dict(llm_cfg)
+    cfg["timeout"] = min(float(cfg.get("timeout", max_timeout)), max_timeout)
+    cfg["max_tokens"] = min(int(cfg.get("max_tokens", max_tokens)), max_tokens)
+    return cfg
 
 
 def compose(items: List[dict], date_str: str, cfg: dict) -> Tuple[str, bool, Optional[str]]:
-    """生成简报正文。返回 (正文, 是否由 LLM 生成, LLM 错误原因或 None)。
+    """选题、单条隔离分析校验，再按原始素材索引组装简报。
 
-    多源强制：生成后统计正文引用的来源数，若素材含 ≥2 个来源而正文只用了 1 个，
-    带纠正指令重写一次（最多一次，避免死循环）。
+    每条重点新闻独立发起一次单条分析调用，模型在分析某一条时物理上不可见
+    其他新闻，从结构上杜绝跨条串稿（即使全文纯中文意译也不会错位）。
     """
     nd = cfg.get("news_digest", {})
     if not items:
         return fallback_digest([]), False, None
-    highlight_count = min(int(nd.get("highlight_count", 15)), len(items))
-    user = build_user_prompt(date_str, items, _requirements(nd, highlight_count))
+    highlight_count = min(max(0, int(nd.get("highlight_count", 15))), len(items))
+    if not highlight_count:
+        return fallback_digest(items, highlight_count=0), False, None
+
     llm_cfg = cfg.get("llm", {})
-    try:
-        text = retry(
-            lambda: llm_chat(llm_cfg, SYSTEM_PROMPT, user),
-            attempts=3,
-            delay=3.0,
-            what="LLM 蒸馏",
-        )
-        log.info("LLM 蒸馏完成，正文 %d 字符", len(text))
-        parsed = parse_digest(text)
+    sel_cfg = _stage_cfg(llm_cfg, max_timeout=_SELECTION_TIMEOUT, max_tokens=600)
+    item_cfg = _stage_cfg(llm_cfg, max_timeout=_ANALYSIS_TIMEOUT, max_tokens=350)
+    syn_cfg = _stage_cfg(llm_cfg, max_timeout=_SYNTHESIS_TIMEOUT, max_tokens=800)
 
-        # ---- 格式校验：必须能解析出有效素材编号，否则拿不到标题与链接 ----
-        if items and not _valid_highlights(parsed, items):
-            log.warning("LLM 输出中没有可解析的素材编号，触发一次格式纠正重写")
-            fix_user = (
-                user
-                + "\n\n【重要纠正】你上一版没有按要求用素材编号引用新闻，"
-                "系统因此无法为每条新闻补全标题与原文链接。"
-                "请严格按 `[编号] 分析内容` 的格式重新输出完整简报："
-                "每一条重点都以方括号编号开头，编号必须是素材中真实存在的编号；"
-                "不要写标题、来源和链接，这些都由系统自动补全。"
-            )
-            text = retry(
-                lambda: llm_chat(llm_cfg, SYSTEM_PROMPT, fix_user),
-                attempts=1,
-                delay=0,
-                what="LLM 格式纠正",
-            )
-            parsed = parse_digest(text)
-            log.info("格式纠正后正文 %d 字符，解析到 %d 条有效重点",
-                     len(text), len(_valid_highlights(parsed, items)))
+    ids = candidate_ids(items)
+    candidates = dict(zip(ids, items))
+    indices = {key: i for i, key in enumerate(ids, 1)}
+    user = build_user_prompt(date_str, items, _requirements(nd, highlight_count), ids=ids)
+    reply, selection_error = _call(sel_cfg, SYSTEM_PROMPT, user, stage="LLM 选题", attempts=3)
+    proposed = [key for key in _response_list(reply, "selected_ids")
+                if isinstance(key, str) and key in candidates]
+    selected = _select_highlights(proposed, candidates, highlight_count,
+                                  float(nd.get("overlap_threshold", 0.55)))
 
-        # ---- 多源校验 + 一次性重写 ----
-        available = {it.get("source_name", "") for it in items if it.get("source_name")}
-        if len(available) >= 2:
-            used = _highlight_sources(parsed, items)
-            if len(used) < 2:
-                names = "、".join(sorted(available))
-                log.warning("简报来源单一（%s），触发一次多源重写", sorted(used) or "无")
-                retry_user = (
-                    user
-                    + f"\n\n【重要纠正】你上一版的今日重点只覆盖了来源「{'、'.join(sorted(used)) or '无'}」，"
-                    f"不合格。本次素材包含多个来源：{names}。"
-                    "请重新输出完整简报，今日重点必须覆盖至少 3 个不同来源，"
-                    "国际来源（TechCrunch / The Verge / Reuters）与中文来源（华尔街见闻等）都要有。"
-                    "仍然只输出 `[编号] 分析内容`，不要写标题、来源和链接。"
-                )
-                text = retry(
-                    lambda: llm_chat(llm_cfg, SYSTEM_PROMPT, retry_user),
-                    attempts=1,
-                    delay=0,
-                    what="LLM 多源重写",
-                )
-                log.info("多源重写完成，正文 %d 字符", len(text))
-        return text, True, None
-    except Exception as e:  # noqa: BLE001
-        log.exception("LLM 蒸馏失败，降级为本地兜底简报")
-        reason = str(e)
+    def analyze_one(key: str) -> dict[str, str]:
+        batch = {key: candidates[key]}
+        response, _ = _call(item_cfg, ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt(batch),
+                            stage="LLM 重点分析")
+        entries = _response_list(response, "items")
+        return verify_batch_alignment(entries, batch)
+
+    analyses: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        for verified in executor.map(analyze_one, selected):
+            analyses.update(verified)
+        missing = [key for key in selected if key not in analyses][:_MAX_RECOVERIES]
+        if missing:
+            for verified in executor.map(analyze_one, missing):
+                analyses.update(verified)
+
+    reason = selection_error or "LLM 未返回通过校验的重点分析"
+    if not analyses and not proposed:
         return fallback_digest(items, reason, highlight_count), False, reason
+
+    trend, signals = "", []
+    if analyses:
+        ordered = {key: analyses[key] for key in selected if key in analyses}
+        summary, _ = _call(syn_cfg, SYNTHESIS_SYSTEM_PROMPT, build_synthesis_prompt(date_str, candidates, ordered),
+                           stage="LLM 趋势归纳")
+        parsed = parse_digest(summary)
+        trend, signals = parsed["trend"], _clean_signals(parsed["signals"])[:5]
+
+    log.info("LLM 重点分析通过校验 %d/%d 条", len(analyses), len(selected))
+    lines = ["## 今日重点"]
+    # 仅写入通过 LLM 校验的条目；缺失条目交由 render.build 补齐并自动标注「来源摘要」
+    for key in selected:
+        if key in analyses:
+            lines.append(f"[{indices[key]}] {analyses[key]}")
+    lines.extend(["", "## 趋势观察", trend, "", "## 信号与风险"])
+    lines.extend(f"- {signal}" for signal in signals)
+    return "\n".join(lines), bool(analyses), None if analyses else reason
 
 
 def fallback_digest(items: List[dict], reason: Optional[str] = None, highlight_count: int = 15) -> str:
@@ -165,6 +339,5 @@ def fallback_digest(items: List[dict], reason: Optional[str] = None, highlight_c
         lines.append("今日无重要新闻（抓取结果为空或全部被过滤）。")
     else:
         for i in range(1, min(len(items), highlight_count) + 1):
-            summary = (items[i - 1].get("summary") or "").strip()
-            lines.append(f"[{i}] {summary[:200] or '（无摘要）'}")
+            lines.append(f"[{i}] {_source_summary(items[i - 1])}")
     return "\n".join(lines)

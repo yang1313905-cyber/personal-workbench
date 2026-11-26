@@ -94,6 +94,7 @@ def resolve_paths(cfg: dict) -> None:
 
     nd = cfg.setdefault("news_digest", {})
     nd.setdefault("output_dir", cfg["paths"]["output"])
+    nd["output_dir"] = abspath(nd["output_dir"])
     nd.setdefault("push", {"enabled": True, "channels": []})
 
     ss = cfg.setdefault("status_server", {})

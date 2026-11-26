@@ -112,7 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: digest-${{ github.run_id }}
-          path: data/output/
+          path: data/output/digest-*.md
           if-no-files-found: ignore
           retention-days: 30
 
@@ -136,7 +136,7 @@ jobs:
         run: |
           git config user.name "workbench-bot"
           git config user.email "workbench-bot@users.noreply.github.com"
-          git add -f data/output data/status/status.json
+          git add -f data/output/digest-*.md data/status/status.json
           if git diff --cached --quiet; then
             echo "没有新内容需要提交"
             exit 0

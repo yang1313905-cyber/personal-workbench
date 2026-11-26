@@ -13,6 +13,7 @@ from workbench.modules.news_digest import fetcher
 from .. import config_editor as ce
 from .. import context as wctx
 from .. import data as wdata
+from ..auth import current_user
 
 KINDS = ["rss", "wallstreetcn"]
 LANGS = ["zh", "en"]
@@ -121,7 +122,7 @@ def _source_form() -> None:
             _save(ed, f"已添加「{n_name.strip() or src_id}」（验证抓取 {len(items)} 条）")
 
 
-def _existing_sources() -> None:
+def _existing_sources(is_admin: bool = True) -> None:
     st.subheader("📋 现有数据源")
     ed = ce.feeds_editor()
     sources = ed.sources()
@@ -137,6 +138,9 @@ def _existing_sources() -> None:
         status_icon = "⛔ 停用" if not enabled else ("❌ 上次失败" if sid in failed else "✅ 正常")
         with st.expander(f"{status_icon}　{src.get('name', sid)}　·　{src.get('lang')} · 权重 {src.get('weight')}",
                          expanded=False):
+            if not is_admin:
+                st.caption(f"ID：`{sid}` · 类型：`{src.get('kind', 'rss')}` · 分类：`{src.get('category', 'tech')}`")
+                continue
             f_id = st.text_input("id", str(src.get("id", "")), key=f"src_id_{i}")
             f_name = st.text_input("名称", str(src.get("name", "")), key=f"src_name_{i}")
             f_url = st.text_input("URL", str(src.get("url", "")), key=f"src_url_{i}")
@@ -180,12 +184,15 @@ def _existing_sources() -> None:
 
 def render() -> None:
     st.title("📰 新闻源管理")
+    is_admin = (current_user() or {}).get("role") == "admin"
     st.caption("添加 / 测试 / 编辑新闻源。每个源保存前都会真实抓取验证一次，"
                "不会保存无效地址。多源配额制（config → `max_per_source`）保证每份简报覆盖多个网站。")
 
-    with st.expander("📖 添加源需要准备什么？（点开查看）", expanded=False):
-        st.markdown(GUIDE_MD)
-
-    _source_form()
-    st.divider()
-    _existing_sources()
+    if is_admin:
+        with st.expander("📖 添加源需要准备什么？（点开查看）", expanded=False):
+            st.markdown(GUIDE_MD)
+        _source_form()
+        st.divider()
+    else:
+        st.info("当前为只读模式，仅管理员可添加或修改新闻源。")
+    _existing_sources(is_admin=is_admin)

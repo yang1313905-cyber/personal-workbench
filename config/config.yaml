@@ -39,11 +39,14 @@ news_digest:
   enabled: true
   language: zh            # 简报语言
   word_count: "1500-2200"  # 目标字数
-  max_items: 65           # 送入 LLM 前的候选条数（控制成本）
-  max_per_source: 12       # 每个来源最多入选的条数（多源配额制，保证简报覆盖多网站）
-  highlight_count: 15    # 每日推送重点条数
-  appendix_limit: 30     # 每日推送快讯条数
-  focus: ""               # 可选：重点关注方向，如 "AI 与半导体"
+  max_items: 65           # 送入 LLM 前的候选条数（覆盖首页可设置的最大推送量）
+  max_per_source: 12      # 每个来源最多入选的条数（多源配额制，保证简报覆盖多网站）
+  highlight_count: 15     # 每日推送重点条数
+  appendix_limit: 30      # 每日推送快讯条数
+  max_age_hours: 168       # 仅保留最近 7 天；无日期新闻单独标明
+  interest_keywords: [AI, 人工智能, 大模型, LLM, 生成式, 智能体, Agent, OpenAI, Anthropic, Claude, Gemini, DeepSeek, 通义, 豆包, 机器学习, 开源模型, 科技产品, 消费电子, 芯片, 创业, 初创, startup, 融资]    # 在首页设置，优先排序而非硬过滤
+  discovery_ratio: 0.2     # 保留 20% 候选用于发现其他方向
+  focus: "优先关注 AI 与大模型的新进展、可使用的科技产品、创业公司与融资；说明实际用途、关键变化和影响，区分事实与判断。"               # 可选：重点关注方向，如 "AI 与半导体"
   # 关键词过滤（标题+摘要）
   include_keywords: []    # 例: ["AI", "芯片", "监管", "大模型"]
   exclude_keywords: ["抽奖", "促销", "双11", "拼多多砍价"]

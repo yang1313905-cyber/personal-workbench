@@ -23,6 +23,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -36,14 +37,18 @@ from workbench.core.lock import FileLock, digest_lock_path  # noqa: E402
 PUSH_CHANNEL = "smtp"  # 判定「今天是否已送达」的渠道
 
 
-def today() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+def today(tz_name: str = "Asia/Shanghai") -> str:
+    return datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+
+
+def _tz_of(ctx) -> str:
+    return ctx.config.get("app", {}).get("timezone", "Asia/Shanghai")
 
 
 def already_delivered(ctx) -> bool:
     """当天简报是否已成功推送到邮件渠道。"""
     status = ctx.status.read()
-    if status.get("digest_date") != today():
+    if status.get("digest_date") != today(_tz_of(ctx)):
         return False
     return bool((status.get("push") or {}).get(PUSH_CHANNEL))
 
@@ -56,16 +61,17 @@ def already_delivered(ctx) -> bool:
 MAX_ATTEMPTS_PER_DAY = 6
 
 
-def _attempts_today(status) -> int:
+def _attempts_today(status, tz_name: str = "Asia/Shanghai") -> int:
     data = status.read()
-    if data.get("attempt_date") != today():
+    if data.get("attempt_date") != today(tz_name):
         return 0
     return int(data.get("attempt_count") or 0)
 
 
-def _note_attempt(status) -> int:
-    n = _attempts_today(status) + 1
-    status.update(attempt_date=today(), attempt_count=n)
+def _note_attempt(status, tz_name: str = "Asia/Shanghai") -> int:
+    day = today(tz_name)
+    n = _attempts_today(status, tz_name) + 1
+    status.update(attempt_date=day, attempt_count=n)
     return n
 
 
@@ -77,25 +83,26 @@ def main(argv=None) -> int:
 
     ctx = make_context()
     log = ctx.log
+    tz_name = _tz_of(ctx)
     try:
         if args.check:
             done = already_delivered(ctx)
             print(json.dumps({
-                "date": today(),
+                "date": today(tz_name),
                 "delivered": done,
                 "last_digest_date": ctx.state.last_digest_date(),
-                "attempts_today": _attempts_today(ctx.status),
+                "attempts_today": _attempts_today(ctx.status, tz_name),
                 "status": {k: ctx.status.read().get(k) for k in ("digest_date", "push", "output_file")},
             }, ensure_ascii=False, indent=2))
             return 0
 
         if not args.force and already_delivered(ctx):
-            log.info("[daily] %s 的简报已成功送达，跳过本次触发（幂等）", today())
-            print(f"skip: {today()} 的简报已发送，无需重复执行")
+            log.info("[daily] %s 的简报已成功送达，跳过本次触发（幂等）", today(tz_name))
+            print(f"skip: {today(tz_name)} 的简报已发送，无需重复执行")
             return 0
 
         if not args.force:
-            attempts = _note_attempt(ctx.status)
+            attempts = _note_attempt(ctx.status, tz_name)
             if attempts > MAX_ATTEMPTS_PER_DAY:
                 log.error(
                     "[daily] 今日已尝试 %d 次，达到上限 %d，停止重试。"
@@ -111,6 +118,8 @@ def main(argv=None) -> int:
             print("skip: 已有简报任务在运行")
             return 0
         try:
+            if args.force:
+                ctx.extras["force_digest"] = True
             result = registry.run_module("news_digest", ctx)
         finally:
             lock.release()

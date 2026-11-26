@@ -185,3 +185,21 @@ def test_real_analysis_is_kept_intact():
     parsed = {"highlights": [{"index": 1, "text": text}], "trend": "", "signals": []}
     body = render.build(parsed, ITEMS, "2026-09-23")["markdown"]
     assert text in body
+
+
+def test_email_html_renders_cards_and_editorial_sections():
+    """美化后的邮件 HTML 应将重点新闻分组为独立卡片，并渲染趋势/信号/快讯区块。"""
+    md = render.build(
+        {"highlights": [{"index": 1, "text": "核心事实与影响分析。"}],
+         "trend": "跨新闻趋势归纳段落。",
+         "signals": ["信号一", "信号二"]},
+        ITEMS, "2026-09-23", used_llm=True, fetched_total=10, kept_total=6,
+        highlight_count=1, appendix_limit=2,
+    )["markdown"]
+    html = render_email(md, subject="📰 09-23 简报｜标题1")
+    assert "Personal Workbench · Daily Briefing" in html
+    assert "background:#fbfcfe" in html               # 重点卡片底色
+    assert "background:#fcf9f2" in html               # 趋势观察暖色块
+    assert "background:#f8fafc" in html               # 信号与风险卡片
+    assert "标题2" in html and "标题3" in html        # 快讯区块
+    assert "margin-left:31px" not in html             # 修复旧版元信息与正文错位缩进

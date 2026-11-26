@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import List
 
@@ -133,21 +134,23 @@ def fetch_all(sources: List[dict], http_cfg: dict) -> tuple[List[dict], List[dic
     """
     all_items: List[dict] = []
     errors: List[dict] = []
-    for src in sources:
-        if not src.get("enabled", True):
-            continue
-        # 单源可覆盖全局重试次数（如已知不稳定的源可设 retries: 0 快速失败）
+    def fetch_one(src):
         attempts = max(1, int(src.get("retries", http_cfg.get("retries", 2))) + 1)
         try:
-            items = retry(
-                lambda: fetch_source(src, http_cfg),
-                attempts=attempts,
-                delay=2.0,
-                what=f"抓取 {src.get('name', src['id'])}",
-            )
-            all_items.extend(items)
+            items = retry(lambda: fetch_source(src, http_cfg), attempts=attempts,
+                          delay=2.0, what=f"抓取 {src.get('name', src['id'])}")
+            if not items:
+                raise ValueError("来源未返回任何可读新闻")
             log.info("来源 %s：%d 条", src.get("name", src["id"]), len(items))
-        except Exception as e:  # noqa: BLE001
-            errors.append({"source": src.get("id"), "error": str(e)})
+            return items, None
+        except Exception as e:
             log.warning("来源 %s 抓取失败: %s", src.get("id"), e)
+            return [], {"source": src.get("id"), "error": str(e)}
+
+    enabled = [src for src in sources if src.get("enabled", True)]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for items, error in pool.map(fetch_one, enabled):
+            all_items.extend(items)
+            if error:
+                errors.append(error)
     return all_items, errors
