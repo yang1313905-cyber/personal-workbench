@@ -1,19 +1,19 @@
 {
-  "last_run": "2026-11-27T08:01:43",
-  "items_fetched": 240,
+  "last_run": "2026-11-28T08:01:33",
+  "items_fetched": 233,
   "fetch_errors": [
     {
       "source": "wallstreetcn",
       "error": "HTTPSConnectionPool(host='api-one.wallstcn.com', port=443): Max retries exceeded with url: /apiv1/content/information-flow?channel=global-channel&accept=article&limit=20 (Caused by NameResolutionError"
     }
   ],
-  "updated_at": "2026-11-27T08:02:39",
+  "updated_at": "2026-11-28T08:02:43",
   "module": "news_digest",
-  "digest_date": "2026-11-27",
-  "items_kept": 190,
+  "digest_date": "2026-11-28",
+  "items_kept": 187,
   "used_llm": true,
   "llm_error": null,
-  "output_file": "/home/runner/work/personal-workbench/personal-workbench/data/output/digest-2026-11-27.md",
+  "output_file": "/home/runner/work/personal-workbench/personal-workbench/data/output/digest-2026-11-28.md",
   "push": {
     "smtp": true
   },
@@ -47,15 +47,20 @@
       "time": "2026-11-27T08:02:39",
       "where": "fetch",
       "message": "1 个来源抓取失败: wallstreetcn"
+    },
+    {
+      "time": "2026-11-28T08:02:43",
+      "where": "fetch",
+      "message": "1 个来源抓取失败: wallstreetcn"
     }
   ],
   "last_error": {
-    "time": "2026-11-27T08:02:39",
+    "time": "2026-11-28T08:02:43",
     "where": "fetch",
     "message": "1 个来源抓取失败: wallstreetcn"
   },
-  "attempt_date": "2026-11-27",
+  "attempt_date": "2026-11-28",
   "attempt_count": 1,
   "items_shown": 45,
-  "items_available": 190
+  "items_available": 187
 }
